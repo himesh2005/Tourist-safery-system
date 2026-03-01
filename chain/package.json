@@ -14,9 +14,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@nomicfoundation/hardhat-toolbox": "^7.0.0",
     "@types/node": "^22.19.7",
-    "hardhat": "^2.22.2",
+    "hardhat": "^3.1.10",
     "typescript": "~5.8.0"
   }
 }
