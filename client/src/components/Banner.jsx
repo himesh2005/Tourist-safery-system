@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import clsx from "clsx";
 
 const LABELS = {
   safe: "All Clear - You are in a safe area.",
@@ -23,15 +22,9 @@ const DEMO_BULLETS = [
 ];
 
 function getDemoZoneText(type, zoneName) {
-  if (type === "time_based") {
-    return `You are inside a Night Risk Zone${zoneName ? `: ${zoneName}` : "."}`;
-  }
-  if (type === "high_crime") {
-    return `You are inside a High Crime Zone${zoneName ? `: ${zoneName}` : "."}`;
-  }
-  if (type === "restricted") {
-    return `You are inside a Restricted Zone${zoneName ? `: ${zoneName}` : "."}`;
-  }
+  if (type === "time_based") return `You are inside a Night Risk Zone${zoneName ? `: ${zoneName}` : "."}`;
+  if (type === "high_crime") return `You are inside a High Crime Zone${zoneName ? `: ${zoneName}` : "."}`;
+  if (type === "restricted") return `You are inside a Restricted Zone${zoneName ? `: ${zoneName}` : "."}`;
   return "You are in a safe area.";
 }
 
@@ -40,7 +33,7 @@ export default function Banner({ statusType = "safe", details = "", onDismiss, d
 
   return (
     <motion.div
-      className={clsx("zone-status-banner", `status-${type}`)}
+      className={`zone-status-banner status-${type}`}
       initial={{ y: -80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: -80, opacity: 0 }}
@@ -53,7 +46,7 @@ export default function Banner({ statusType = "safe", details = "", onDismiss, d
       <div className="banner-right">
         <small>{details || `Time: ${new Date().toLocaleTimeString()}`}</small>
         {typeof onDismiss === "function" ? (
-          <button className="banner-dismiss" onClick={onDismiss} aria-label="Dismiss banner">
+          <button className="banner-dismiss" onClick={onDismiss} aria-label="Dismiss banner" type="button">
             X
           </button>
         ) : null}
