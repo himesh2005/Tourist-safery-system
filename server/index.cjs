@@ -171,7 +171,10 @@ async function ensureChainSync() {
 }
 
 // ===== Persistence =====
-const DATA_PATH = path.join(__dirname, "data.json");
+const DATA_PATH = (
+  process.env.DATA_PATH ||
+  path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname, "data.json")
+).trim();
 
 function loadData() {
   try {
@@ -186,6 +189,7 @@ function loadData() {
 const loaded = loadData();
 const users = new Map(Object.entries(loaded.users || {})); // username -> { username, passHash, blockchainId }
 const profiles = new Map(Object.entries(loaded.profiles || {})); // blockchainId -> profile
+console.log("Using DATA_PATH:", DATA_PATH);
 console.log("Loaded users:", users.size, "Loaded profiles:", profiles.size);
 
 function saveData() {
