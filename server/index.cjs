@@ -700,7 +700,7 @@ app.post("/auth/register", async (req, res) => {
     const requestBaseUrl = getPublicBaseUrl(req);
     const scanUrl = `${requestBaseUrl}/scan/${blockchainId}`;
     const verificationUrl = buildVerificationUrl(qrPayload, requestBaseUrl);
-    const qrDataUrl = await QRCode.toDataURL(verificationUrl);
+    const qrDataUrl = await QRCode.toDataURL(scanUrl);
 
     res.json({
       message:
@@ -714,7 +714,7 @@ app.post("/auth/register", async (req, res) => {
       scanUrl,
       verificationUrl,
       qrDataUrl,
-      qrText: verificationUrl,
+      qrText: scanUrl,
     });
   } catch (err) {
     console.log("REGISTER ERROR:", err);
@@ -1053,7 +1053,7 @@ app.get("/my-card", authMiddleware, async (req, res) => {
       issuerPublicKey,
     };
     const verificationUrl = buildVerificationUrl(qrPayload, requestBaseUrl);
-    const qrDataUrl = await QRCode.toDataURL(verificationUrl);
+    const qrDataUrl = await QRCode.toDataURL(scanUrl);
 
     res.json({
       username,
@@ -1061,7 +1061,7 @@ app.get("/my-card", authMiddleware, async (req, res) => {
       scanUrl,
       verificationUrl,
       qrDataUrl,
-      qrText: verificationUrl,
+      qrText: scanUrl,
     });
   } catch (err) {
     res.status(500).json({ error: "my-card failed", details: String(err) });
