@@ -77,12 +77,36 @@ function getPublicBaseUrl(req) {
     .trim()
     .replace(/\/+$/, "");
 
-  if (host) {
-    const protocol = proto || (host.startsWith("localhost") ? "http" : "https");
-    return `${protocol}://${host}`;
+  const isPrivateOrLocalUrl = (value) => {
+    try {
+      const parsed = new URL(value);
+      const hostname = String(parsed.hostname || "").toLowerCase();
+
+      if (!hostname) return true;
+      if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+      if (hostname.startsWith("10.")) return true;
+      if (hostname.startsWith("192.168.")) return true;
+      if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) return true;
+
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  // Force explicit public BASE_URL when configured.
+  if (configured && !isPrivateOrLocalUrl(configured)) {
+    return configured;
   }
 
-  return configured;
+  // Fallback to forwarded host only if it resolves to a public URL.
+  if (host) {
+    const protocol = proto || (host.startsWith("localhost") ? "http" : "https");
+    const derived = `${protocol}://${host}`;
+    if (!isPrivateOrLocalUrl(derived)) return derived;
+  }
+
+  return configured || `http://${LOCAL_IP}:${PORT}`;
 }
 // ===== System signing key (for QR signature issuance) =====
 const SIGNING_PRIVATE_KEY = (process.env.SIGNING_PRIVATE_KEY || "")
