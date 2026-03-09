@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Auth from "./pages/Auth.jsx";
 import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import Verify from "./pages/Verify.jsx";
 import RouteTransition from "./components/RouteTransition.jsx";
 
 export default function App() {
@@ -16,13 +17,17 @@ export default function App() {
       <div className="bg-particle p-3" />
 
       <RouteTransition routeKey={location.pathname}>
-          <Routes location={location}>
-            <Route path="/" element={<Navigate to="/auth" replace />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="*" element={<div style={{ padding: 20 }}>Not Found</div>} />
-          </Routes>
+        <Routes location={location}>
+          <Route path="/" element={<Navigate to="/auth" replace />} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/verify/:id" element={<Verify />} />
+          <Route
+            path="*"
+            element={<div style={{ padding: 20 }}>Not Found</div>}
+          />
+        </Routes>
       </RouteTransition>
     </div>
   );
