@@ -38,7 +38,12 @@ app.use("/", geofenceRoutes);
 app.use("/", emergencyRoutes);
 
 // ===== ENV =====
-const RPC_URL = (process.env.AMOY_RPC_URL || "").trim();
+const RPC_URL = (
+  process.env.AMOY_RPC_URL ||
+  process.env.ALCHEMY_URL ||
+  process.env.POLYGON_RPC_URL ||
+  ""
+).trim();
 const PRIVATE_KEY = (process.env.PRIVATE_KEY || "")
   .trim()
   .replace(/^"|"$/g, "");
@@ -58,6 +63,27 @@ const LOCAL_IP = getLocalIPv4();
 const BASE_URL = (process.env.BASE_URL || `http://${LOCAL_IP}:${PORT}`)
   .trim()
   .replace(/\/+$/, "");
+
+function getPublicBaseUrl(req) {
+  const configured = String(BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const host = String(
+    req?.headers?.["x-forwarded-host"] || req?.headers?.host || "",
+  )
+    .trim()
+    .replace(/\/+$/, "");
+  const proto = String(req?.headers?.["x-forwarded-proto"] || "")
+    .trim()
+    .replace(/\/+$/, "");
+
+  if (host) {
+    const protocol = proto || (host.startsWith("localhost") ? "http" : "https");
+    return `${protocol}://${host}`;
+  }
+
+  return configured;
+}
 // ===== System signing key (for QR signature issuance) =====
 const SIGNING_PRIVATE_KEY = (process.env.SIGNING_PRIVATE_KEY || "")
   .trim()
@@ -173,8 +199,10 @@ const CONTRACT_ADDRESS =
 
 // ===== hard checks =====
 if (!RPC_URL) {
-  console.log("BAD AMOY_RPC_URL:", RPC_URL);
-  console.log("Fix: set AMOY_RPC_URL in server/.env");
+  console.log("BAD RPC URL:", RPC_URL);
+  console.log(
+    "Fix: set AMOY_RPC_URL or ALCHEMY_URL (or POLYGON_RPC_URL) in server/.env",
+  );
   process.exit(1);
 }
 
@@ -256,11 +284,11 @@ function buildSignableQrProfile(input) {
   };
 }
 
-function buildVerificationUrl(qrPayload) {
+function buildVerificationUrl(qrPayload, baseUrl = BASE_URL) {
   const base64Payload = Buffer.from(JSON.stringify(qrPayload), "utf8").toString(
     "base64",
   );
-  return `${BASE_URL}/verify-card?payload=${encodeURIComponent(base64Payload)}`;
+  return `${String(baseUrl || BASE_URL).replace(/\/+$/, "")}/verify-card?payload=${encodeURIComponent(base64Payload)}`;
 }
 
 function escapeHtml(value) {
@@ -629,8 +657,9 @@ app.post("/auth/register", async (req, res) => {
       signature,
       issuerPublicKey,
     };
-    const scanUrl = `${BASE_URL}/scan/${blockchainId}`;
-    const verificationUrl = buildVerificationUrl(qrPayload);
+    const requestBaseUrl = getPublicBaseUrl(req);
+    const scanUrl = `${requestBaseUrl}/scan/${blockchainId}`;
+    const verificationUrl = buildVerificationUrl(qrPayload, requestBaseUrl);
     const qrDataUrl = await QRCode.toDataURL(verificationUrl);
 
     res.json({
@@ -939,7 +968,8 @@ app.get("/my-card", authMiddleware, async (req, res) => {
     if (!profile) return res.status(404).json({ error: "profile not found" });
 
     const onChainHash = sha256Hex(JSON.stringify(profile));
-    const scanUrl = `${BASE_URL}/scan/${u.blockchainId}`;
+    const requestBaseUrl = getPublicBaseUrl(req);
+    const scanUrl = `${requestBaseUrl}/scan/${u.blockchainId}`;
     const signableProfile = buildSignableQrProfile({
       blockchainId: u.blockchainId,
       name: profile.name,
@@ -956,7 +986,7 @@ app.get("/my-card", authMiddleware, async (req, res) => {
       signature,
       issuerPublicKey,
     };
-    const verificationUrl = buildVerificationUrl(qrPayload);
+    const verificationUrl = buildVerificationUrl(qrPayload, requestBaseUrl);
     const qrDataUrl = await QRCode.toDataURL(verificationUrl);
 
     res.json({
