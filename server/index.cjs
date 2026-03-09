@@ -195,6 +195,10 @@ console.log("Loaded users:", users.size, "Loaded profiles:", profiles.size);
 function saveData() {
   const usersObj = Object.fromEntries(users.entries());
   const profilesObj = Object.fromEntries(profiles.entries());
+  const dataDir = path.dirname(DATA_PATH);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
   fs.writeFileSync(
     DATA_PATH,
     JSON.stringify({ users: usersObj, profiles: profilesObj }, null, 2),
