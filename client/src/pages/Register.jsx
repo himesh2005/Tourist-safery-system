@@ -8,6 +8,10 @@ const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const usernameRegex = /^[A-Za-z0-9]{4,}$/;
 const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 const mobileRegex = /^\d{10}$/;
+const MotionForm = motion.form;
+const MotionButton = motion.button;
+const MotionP = motion.p;
+const MotionSmall = motion.small;
 
 export default function Register() {
   const nav = useNavigate();
@@ -128,12 +132,30 @@ export default function Register() {
       const data = await res.json();
 
       if (!res.ok) {
-        setMsg(data.error || "Register failed");
+        const serverDetails = [
+          data?.error,
+          data?.details,
+          data?.chainWriteError,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+
+        setMsg(
+          serverDetails
+            ? `Register failed: ${serverDetails}`
+            : "Register failed. Please try again.",
+        );
         setIsSubmitting(false);
         return;
       }
 
-      setMsg("Account created - Redirecting to login...");
+      if (data?.chainWriteStatus === "failed") {
+        setMsg(
+          "Account created, but blockchain sync is pending. Redirecting...",
+        );
+      } else {
+        setMsg("Account created - Redirecting to login...");
+      }
       setTimeout(() => nav("/auth"), 1200);
     } catch {
       setMsg("Network error. Please try again.");
@@ -143,7 +165,7 @@ export default function Register() {
 
   return (
     <div className="auth-screen page-container">
-      <motion.form
+      <MotionForm
         onSubmit={submit}
         className="glass-card auth-card"
         initial={{ opacity: 0, y: 16 }}
@@ -174,6 +196,7 @@ export default function Register() {
             label="Password"
             value={form.password}
             type={showPassword ? "text" : "password"}
+            autoComplete="new-password"
             onChange={(v) => set("password", v)}
             error={errors.password}
             helper="Use upper/lowercase, number and one special character."
@@ -245,19 +268,19 @@ export default function Register() {
         </div>
 
         <div className="auth-actions">
-          <motion.button
+          <MotionButton
             whileHover={{ scale: 1.02 }}
             type="submit"
             className="pill-btn"
             disabled={isSubmitting}
           >
             {isSubmitting ? "Creating..." : "Create Account"}
-          </motion.button>
+          </MotionButton>
           <Link to="/auth">Back to login</Link>
         </div>
 
         <AnimatePresence mode="wait">
-          <motion.p
+          <MotionP
             key={msg}
             className="auth-msg"
             initial={{ opacity: 0, y: -2 }}
@@ -265,9 +288,9 @@ export default function Register() {
             exit={{ opacity: 0, y: 2 }}
           >
             {msg}
-          </motion.p>
+          </MotionP>
         </AnimatePresence>
-      </motion.form>
+      </MotionForm>
     </div>
   );
 }
@@ -277,6 +300,7 @@ function Field({
   value,
   onChange,
   type = "text",
+  autoComplete,
   error,
   helper,
   toggle,
@@ -289,6 +313,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         type={type}
+        autoComplete={autoComplete}
       />
       <label className="field-label">{label}</label>
       {toggle || null}
@@ -302,14 +327,14 @@ function FieldError({ text }) {
   return (
     <AnimatePresence>
       {text ? (
-        <motion.small
+        <MotionSmall
           className="field-error"
           initial={{ opacity: 0, y: -3 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -3 }}
         >
           {text}
-        </motion.small>
+        </MotionSmall>
       ) : null}
     </AnimatePresence>
   );

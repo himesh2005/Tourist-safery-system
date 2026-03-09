@@ -632,11 +632,27 @@ app.post("/auth/register", async (req, res) => {
 
     const profileHash = sha256Hex(JSON.stringify(profile));
 
-    // Write to blockchain
-    const tx = await contract.createId(blockchainId, profileHash);
-    const receipt = await tx.wait();
+    // Try blockchain write, but keep registration resilient if chain call fails
+    let txHash = null;
+    let chainWriteStatus = "success";
+    let chainWriteError = "";
 
-    // Save locally
+    try {
+      const tx = await contract.createId(blockchainId, profileHash);
+      const receipt = await tx.wait();
+      txHash = receipt?.hash || null;
+    } catch (chainErr) {
+      chainWriteStatus = "failed";
+      chainWriteError = String(
+        chainErr?.shortMessage ||
+          chainErr?.reason ||
+          chainErr?.message ||
+          chainErr,
+      );
+      console.log("REGISTER CHAIN WRITE FAILED:", chainWriteError);
+    }
+
+    // Save locally regardless of blockchain write result
     users.set(username, { username, passHash, blockchainId });
     profiles.set(blockchainId, profile);
     saveData();
@@ -663,9 +679,14 @@ app.post("/auth/register", async (req, res) => {
     const qrDataUrl = await QRCode.toDataURL(verificationUrl);
 
     res.json({
-      message: "registered",
+      message:
+        chainWriteStatus === "success"
+          ? "registered"
+          : "registered locally (blockchain write pending)",
       blockchainId,
-      txHash: receipt.hash,
+      txHash,
+      chainWriteStatus,
+      chainWriteError,
       scanUrl,
       verificationUrl,
       qrDataUrl,
@@ -716,7 +737,24 @@ app.get("/api/verify/:blockchainId", async (req, res) => {
       return res.status(404).json({ error: "Profile not found (local store)" });
 
     const localHash = sha256Hex(JSON.stringify(profile));
-    const [onChainHash] = await contract.getRecord(blockchainId);
+
+    let onChainHash = null;
+    let onChainAvailable = true;
+    let onChainError = "";
+
+    try {
+      const record = await contract.getRecord(blockchainId);
+      onChainHash = record?.[0] || null;
+    } catch (chainErr) {
+      onChainAvailable = false;
+      onChainError = String(
+        chainErr?.shortMessage ||
+          chainErr?.reason ||
+          chainErr?.message ||
+          chainErr,
+      );
+      console.log("VERIFY CHAIN READ FAILED:", blockchainId, onChainError);
+    }
 
     const safeProfile = {
       blockchainId: profile.blockchainId,
@@ -732,7 +770,11 @@ app.get("/api/verify/:blockchainId", async (req, res) => {
       proof: {
         localHash,
         onChainHash,
-        match: localHash.toLowerCase() === String(onChainHash).toLowerCase(),
+        onChainAvailable,
+        onChainError,
+        match:
+          Boolean(onChainHash) &&
+          localHash.toLowerCase() === String(onChainHash).toLowerCase(),
       },
     });
   } catch (err) {
