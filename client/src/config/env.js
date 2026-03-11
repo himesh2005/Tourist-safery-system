@@ -1,5 +1,5 @@
 const DEFAULT_API_URL =
-  "https://tourist-safery-system-production.up.railway.app";
+  "https://tourist-safety-system-production.up.railway.app";
 
 function stripWrappingQuotes(value = "") {
   return String(value)
@@ -14,7 +14,7 @@ function normalizeApiBaseUrl(input) {
   let candidate = raw;
 
   // Handle accidental protocol-less values like:
-  // "tourist-safery-system-production.up.railway.app"
+  // "tourist-safety-system-production.up.railway.app"
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
     const isLocalhost =
       /^localhost(?::\d+)?(?:\/|$)/i.test(candidate) ||

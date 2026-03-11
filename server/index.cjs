@@ -721,7 +721,7 @@ app.post("/auth/register", async (req, res) => {
       issuerPublicKey,
     };
     const requestBaseUrl = getPublicBaseUrl(req);
-    const scanUrl = `${process.env.FRONTEND_URL || "https://tourist-safery-system-theta.vercel.app"}/#/verify/${blockchainId}`;
+    const scanUrl = `${process.env.FRONTEND_URL || "https://tourist-safety-system-theta.vercel.app"}/#/verify/${blockchainId}`;
     const verificationUrl = buildVerificationUrl(qrPayload, requestBaseUrl);
     const qrDataUrl = await QRCode.toDataURL(scanUrl);
 
@@ -1115,7 +1115,7 @@ app.get("/my-card", authMiddleware, async (req, res) => {
 
     const onChainHash = sha256Hex(JSON.stringify(profile));
     const requestBaseUrl = getPublicBaseUrl(req);
-    const scanUrl = `${process.env.FRONTEND_URL || "https://tourist-safery-system-theta.vercel.app"}/#/verify/${u.blockchainId}`;
+    const scanUrl = `${process.env.FRONTEND_URL || "https://tourist-safety-system-theta.vercel.app"}/#/verify/${u.blockchainId}`;
     const signableProfile = buildSignableQrProfile({
       blockchainId: u.blockchainId,
       name: profile.name,
