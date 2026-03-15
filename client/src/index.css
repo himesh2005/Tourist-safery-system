@@ -1881,7 +1881,7 @@ a:hover {
 .gm-connectivity-banner,
 .gm-action-banner,
 .gm-sos-modal,
-.gm-sos-backdrop {
+.gm-sos-overlay {
     z-index: 1000;
 }
 
@@ -1925,23 +1925,30 @@ a:hover {
     background: #e65100;
 }
 
-.gm-sos-backdrop {
+.gm-sos-overlay {
     position: fixed;
-    inset: 0;
-    border: 0;
-    background: rgba(15, 23, 42, 0.45);
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
 }
 
 .gm-sos-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    position: relative;
     width: min(92vw, 420px);
-    background: rgba(255, 255, 255, 0.98);
+    background: white;
     color: #1a1a1a;
     border-radius: 20px;
-    padding: 22px 20px;
+    padding: 28px 24px;
+    width: 90%;
+    max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
     display: flex;
     flex-direction: column;

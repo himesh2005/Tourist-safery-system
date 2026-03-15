@@ -1444,20 +1444,19 @@ export default function GeofenceMap({
 
       <AnimatePresence>
         {sosModalOpen ? (
-          <>
-            <motion.button
-              type="button"
-              className="gm-sos-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => (sosSubmitting ? null : setSosModalOpen(false))}
-            />
+          <motion.div
+            className="gm-sos-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => (sosSubmitting ? null : setSosModalOpen(false))}
+          >
             <motion.div
               className="gm-sos-modal"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
+              onClick={(event) => event.stopPropagation()}
             >
               <div className="gm-sos-modal-icon">🆘</div>
               <h3>Send Emergency Alert?</h3>
@@ -1491,7 +1490,7 @@ export default function GeofenceMap({
                 Cancel
               </button>
             </motion.div>
-          </>
+          </motion.div>
         ) : null}
       </AnimatePresence>
 
