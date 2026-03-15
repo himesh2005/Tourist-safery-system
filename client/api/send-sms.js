@@ -15,6 +15,9 @@ module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   const method = String(req.method || "GET").toUpperCase();
+  const hasKey = Boolean(
+    process.env.FAST2SMS_KEY || process.env.FAST2SMS_API_KEY,
+  );
 
   if (method === "OPTIONS") return res.status(200).end();
 
@@ -26,6 +29,7 @@ module.exports = async (req, res) => {
         success: true,
         reachable: true,
         method,
+        hasKey,
         note: "Use POST with JSON body or GET with ?message=...&number=...",
       });
     }
@@ -39,6 +43,9 @@ module.exports = async (req, res) => {
   }
 
   let body = req.body || {};
+  if (Buffer.isBuffer(body)) {
+    body = body.toString("utf8");
+  }
   if (
     method === "POST" &&
     (!body || (typeof body === "object" && Object.keys(body).length === 0))
@@ -57,24 +64,34 @@ module.exports = async (req, res) => {
     try {
       body = JSON.parse(body);
     } catch {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid JSON request body" });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid JSON request body",
+        method,
+        hasKey,
+      });
     }
   }
 
   const { message, number } = body;
   if (!message || !number) {
-    return res
-      .status(400)
-      .json({ success: false, error: "Missing message or number" });
+    return res.status(200).json({
+      success: false,
+      error: "Missing message or number",
+      method,
+      hasKey,
+      bodyType: typeof body,
+      body,
+    });
   }
 
   const apiKey = process.env.FAST2SMS_KEY || process.env.FAST2SMS_API_KEY || "";
   if (!apiKey) {
-    return res.status(500).json({
+    return res.status(200).json({
       success: false,
       error: "FAST2SMS_KEY not configured in Vercel",
+      method,
+      hasKey: false,
     });
   }
 
@@ -115,9 +132,12 @@ module.exports = async (req, res) => {
           try {
             parsed = JSON.parse(data);
           } catch {
-            res.status(502).json({
+            res.status(200).json({
               success: false,
               error: "Invalid Fast2SMS response",
+              method,
+              hasKey,
+              statusCode: response.statusCode,
               raw: data,
             });
             resolve();
@@ -130,8 +150,10 @@ module.exports = async (req, res) => {
             response.statusCode < 300 &&
             parsed?.return === true;
 
-          res.status(success ? 200 : 502).json({
+          res.status(200).json({
             success,
+            method,
+            hasKey,
             statusCode: response.statusCode,
             result: parsed,
             error: success ? undefined : parsed?.message || "Fast2SMS failed",
@@ -143,9 +165,12 @@ module.exports = async (req, res) => {
 
     request.on("error", (error) => {
       console.error("Request error:", error.message);
-      res
-        .status(500)
-        .json({ success: false, error: error.message || "Request failed" });
+      res.status(200).json({
+        success: false,
+        method,
+        hasKey,
+        error: error.message || "Request failed",
+      });
       resolve();
     });
 
