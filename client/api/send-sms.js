@@ -112,7 +112,7 @@ module.exports = async (req, res) => {
   return new Promise((resolve) => {
     const request = https.request(
       {
-        hostname: "api.fast2sms.com",
+        hostname: "www.fast2sms.com",
         port: 443,
         path: "/dev/bulkV2",
         method: "POST",
