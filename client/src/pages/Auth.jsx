@@ -39,6 +39,21 @@ export default function Auth() {
 
       localStorage.setItem("token", data.token);
       localStorage.setItem("blockchainId", data.blockchainId);
+      if (data.profile) {
+        localStorage.setItem(
+          "userProfile",
+          JSON.stringify({
+            id: data.blockchainId,
+            blockchainId: data.blockchainId,
+            name: data.profile.name || username,
+            phone: data.profile.mobile || "",
+            mobile: data.profile.mobile || "",
+            emergencyContact: data.profile.emergencyContacts || "",
+            emergencyContacts: data.profile.emergencyContacts || "",
+            address: data.profile.address || "",
+          }),
+        );
+      }
       setMsg("Success - Redirecting...");
       nav("/dashboard");
     } catch {

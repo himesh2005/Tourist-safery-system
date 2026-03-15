@@ -1,5 +1,6 @@
-const DEFAULT_API_URL =
-  "https://tourist-safety-system-production.up.railway.app";
+const DEFAULT_API_URL = import.meta.env.DEV
+  ? "http://localhost:5000"
+  : "https://tourist-safety-system-production.up.railway.app";
 
 function stripWrappingQuotes(value = "") {
   return String(value)

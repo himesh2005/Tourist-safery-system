@@ -15,6 +15,8 @@ const { appendVerificationLog } = require("./utils/verificationLogger.cjs");
 const geofenceRoutes = require("./routes/geofence.cjs");
 const emergencyRoutes = require("./routes/emergency.cjs");
 
+const CITY_ROUTES_DIR = path.join(__dirname, "routes", "zones");
+
 let blockchainReady = false;
 
 const app = express();
@@ -45,6 +47,12 @@ const PRIVATE_KEY = (process.env.PRIVATE_KEY || "")
   .replace(/^"|"$/g, "");
 const JWT_SECRET = (process.env.JWT_SECRET || "dev_secret").trim();
 const PORT = Number((process.env.PORT || "5000").trim());
+const FAST2SMS_KEY = (process.env.FAST2SMS_KEY || "").trim();
+const DEMO_EMERGENCY_NUMBER = (
+  process.env.DEMO_EMERGENCY_NUMBER || "918432419551"
+)
+  .trim()
+  .replace(/[^\d]/g, "");
 function getLocalIPv4() {
   const interfaces = os.networkInterfaces();
   for (const addresses of Object.values(interfaces)) {
@@ -182,6 +190,12 @@ function loadData() {
   }
 }
 
+function readCityJson(fileName) {
+  const filePath = path.join(CITY_ROUTES_DIR, fileName);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
 const loaded = loadData();
 const users = new Map(Object.entries(loaded.users || {})); // username -> { username, passHash, blockchainId }
 const profiles = new Map(Object.entries(loaded.profiles || {})); // blockchainId -> profile
@@ -199,6 +213,38 @@ function saveData() {
     DATA_PATH,
     JSON.stringify({ users: usersObj, profiles: profilesObj }, null, 2),
   );
+}
+
+async function sendEmergencySms(message, number = DEMO_EMERGENCY_NUMBER) {
+  if (!FAST2SMS_KEY) {
+    return {
+      success: false,
+      error: "FAST2SMS_KEY is not configured",
+      fallbackNumber: number,
+    };
+  }
+
+  const response = await fetch("https://api.fast2sms.com/dev/bulkV2", {
+    method: "POST",
+    headers: {
+      authorization: FAST2SMS_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      route: "q",
+      message,
+      language: "english",
+      flash: 0,
+      numbers: number,
+    }),
+  });
+
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result?.message || "Fast2SMS request failed");
+  }
+
+  return { success: true, result };
 }
 
 // ===== Contract address loading =====
@@ -562,6 +608,143 @@ app.get("/debug/state", (req, res) => {
   });
 });
 
+app.post("/api/user/last-location", authMiddleware, (req, res) => {
+  try {
+    const { username } = req.user;
+    const user = users.get(username);
+    if (!user) return res.status(404).json({ error: "user not found" });
+
+    const profile = profiles.get(user.blockchainId);
+    if (!profile) return res.status(404).json({ error: "profile not found" });
+
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+    const timestamp = Number(req.body?.timestamp || Date.now());
+    const zoneName = String(req.body?.zoneName || "").trim();
+    const riskLevel = String(req.body?.riskLevel || "safe")
+      .trim()
+      .toLowerCase();
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: "lat and lng are required" });
+    }
+
+    profile.lastKnownLocation = {
+      lat,
+      lng,
+      timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+      zoneName,
+      riskLevel: riskLevel || "safe",
+    };
+    profiles.set(user.blockchainId, profile);
+    saveData();
+
+    return res.json({
+      success: true,
+      lastKnownLocation: profile.lastKnownLocation,
+    });
+  } catch (err) {
+    console.log("USER LAST LOCATION ERROR:", err);
+    return res.status(500).json({ error: "Failed to save last location" });
+  }
+});
+
+app.post("/api/emergency/sos", async (req, res) => {
+  try {
+    const { lat, lng, userId, zoneName, riskLevel, message } = req.body || {};
+    const payloadMessage = String(message || "").trim();
+    if (!payloadMessage) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const smsResult = await sendEmergencySms(
+      payloadMessage,
+      DEMO_EMERGENCY_NUMBER,
+    );
+    return res.json({
+      success: true,
+      lat,
+      lng,
+      userId: userId || "",
+      zoneName: zoneName || "",
+      riskLevel: riskLevel || "",
+      result: smsResult.result || smsResult,
+      number: DEMO_EMERGENCY_NUMBER,
+    });
+  } catch (err) {
+    console.log("EMERGENCY SOS ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Failed to send SOS alert",
+      number: DEMO_EMERGENCY_NUMBER,
+    });
+  }
+});
+
+app.post("/api/emergency/location-alert", async (req, res) => {
+  try {
+    const { userId, message } = req.body || {};
+    const payloadMessage = String(message || "").trim();
+    if (!payloadMessage) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const smsResult = await sendEmergencySms(
+      payloadMessage,
+      DEMO_EMERGENCY_NUMBER,
+    );
+    return res.json({
+      success: true,
+      userId: userId || "",
+      result: smsResult.result || smsResult,
+      number: DEMO_EMERGENCY_NUMBER,
+    });
+  } catch (err) {
+    console.log("LOCATION ALERT ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Failed to send location alert",
+      number: DEMO_EMERGENCY_NUMBER,
+    });
+  }
+});
+
+app.get("/api/tourist-spots/:city", (req, res) => {
+  try {
+    const city = String(req.params.city || "")
+      .trim()
+      .toLowerCase();
+    const data = readCityJson(`${city}-tourist-spots.json`);
+    if (!data) {
+      return res
+        .status(404)
+        .json({ error: "Tourist spots not found for city" });
+    }
+    return res.json(data);
+  } catch (err) {
+    console.log("TOURIST SPOTS /api/tourist-spots/:city ERROR:", err);
+    return res.status(500).json({ error: "Failed to load tourist spots" });
+  }
+});
+
+app.get("/api/emergency-services/:city", (req, res) => {
+  try {
+    const city = String(req.params.city || "")
+      .trim()
+      .toLowerCase();
+    const data = readCityJson(`${city}-emergency-services.json`);
+    if (!data) {
+      return res
+        .status(404)
+        .json({ error: "Emergency services not found for city" });
+    }
+    return res.json(data);
+  } catch (err) {
+    console.log("EMERGENCY SERVICES /api/emergency-services/:city ERROR:", err);
+    return res.status(500).json({ error: "Failed to load emergency services" });
+  }
+});
+
 // ===== Register UI (shows QR) =====
 app.get("/register-ui", (req, res) => {
   res.send(`
@@ -647,6 +830,7 @@ app.post("/auth/register", async (req, res) => {
       username,
       password,
       name,
+      mobile,
       bloodGroup,
       allergies,
       emergencyContacts,
@@ -658,7 +842,7 @@ app.post("/auth/register", async (req, res) => {
     if (users.has(username))
       return res.status(409).json({ error: "username already exists" });
 
-    if (!name || !bloodGroup || !emergencyContacts || !address) {
+    if (!name || !mobile || !bloodGroup || !emergencyContacts || !address) {
       return res.status(400).json({ error: "Missing profile fields" });
     }
 
@@ -669,6 +853,7 @@ app.post("/auth/register", async (req, res) => {
       blockchainId,
       username,
       name,
+      mobile,
       bloodGroup,
       allergies: allergies || "",
       emergencyContacts,
@@ -761,7 +946,20 @@ app.post("/auth/login", async (req, res) => {
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: "2h" });
-    res.json({ token, blockchainId: u.blockchainId });
+    const profile = profiles.get(u.blockchainId) || null;
+    res.json({
+      token,
+      blockchainId: u.blockchainId,
+      profile: profile
+        ? {
+            blockchainId: profile.blockchainId,
+            name: profile.name,
+            mobile: profile.mobile || "",
+            emergencyContacts: profile.emergencyContacts || "",
+            address: profile.address || "",
+          }
+        : null,
+    });
   } catch (err) {
     res.status(500).json({ error: "login failed", details: String(err) });
   }
@@ -771,7 +969,21 @@ app.get("/me", authMiddleware, (req, res) => {
   const { username } = req.user;
   const u = users.get(username);
   if (!u) return res.status(404).json({ error: "user not found" });
-  res.json({ username, blockchainId: u.blockchainId });
+  const profile = profiles.get(u.blockchainId) || null;
+  res.json({
+    username,
+    blockchainId: u.blockchainId,
+    profile: profile
+      ? {
+          blockchainId: profile.blockchainId,
+          name: profile.name,
+          mobile: profile.mobile || "",
+          emergencyContacts: profile.emergencyContacts || "",
+          address: profile.address || "",
+          bloodGroup: profile.bloodGroup || "",
+        }
+      : null,
+  });
 });
 
 // ===== VERIFY API =====

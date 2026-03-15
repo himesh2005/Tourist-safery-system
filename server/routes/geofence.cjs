@@ -5,26 +5,54 @@ const path = require("path");
 
 const ZONES_PATH = path.join(__dirname, "..", "data", "zones.json");
 const NAGPUR_DEMO_PATH = path.join(__dirname, "..", "data", "nagpur-demo.json");
+const CITY_ZONES_DIR = path.join(__dirname, "zones");
+const GADCHIROLI_ZONES_PATH = path.join(CITY_ZONES_DIR, "gadchiroli.json");
 
 function loadZonesFile() {
   const raw = fs.readFileSync(ZONES_PATH, "utf8");
   return JSON.parse(raw);
 }
 
+function loadCityZonesFile(filePath) {
+  const raw = fs.readFileSync(filePath, "utf8");
+  return JSON.parse(raw);
+}
+
 function resolveCityPayload(parsed, cityParam) {
-  const cityKey = String(cityParam || "nagpur").trim().toLowerCase();
+  const cityKey = String(cityParam || "nagpur")
+    .trim()
+    .toLowerCase();
 
   if (cityKey === "nagpur-demo") {
     const demoRaw = fs.readFileSync(NAGPUR_DEMO_PATH, "utf8");
     const demoParsed = JSON.parse(demoRaw);
     if (!demoParsed || !Array.isArray(demoParsed.zones)) {
-      throw new Error("nagpur-demo.json must contain { city, center, zones[] }");
+      throw new Error(
+        "nagpur-demo.json must contain { city, center, zones[] }",
+      );
     }
     return {
       cityKey: "nagpur-demo",
       city: demoParsed.city || "Nagpur Demo",
-      center: Array.isArray(demoParsed.center) ? demoParsed.center : [21.1458, 79.0882],
+      center: Array.isArray(demoParsed.center)
+        ? demoParsed.center
+        : [21.1458, 79.0882],
       zones: demoParsed.zones,
+    };
+  }
+
+  if (cityKey === "gadchiroli") {
+    const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
+    if (!gadchiroliParsed || !Array.isArray(gadchiroliParsed.zones)) {
+      throw new Error("gadchiroli.json must contain { city, zones[] }");
+    }
+    return {
+      cityKey: "gadchiroli",
+      city: gadchiroliParsed.city || "Gadchiroli",
+      center: Array.isArray(gadchiroliParsed.center)
+        ? gadchiroliParsed.center
+        : [20.1849, 80.003],
+      zones: gadchiroliParsed.zones,
     };
   }
 
@@ -51,6 +79,48 @@ function resolveCityPayload(parsed, cityParam) {
   };
 }
 
+function normalizeZoneForCheck(zone) {
+  const sourceRisk = String(zone?.riskLevel || "")
+    .trim()
+    .toLowerCase();
+  const riskLevel =
+    sourceRisk === "danger" || sourceRisk === "high"
+      ? "danger"
+      : sourceRisk === "moderate" || sourceRisk === "medium"
+        ? "moderate"
+        : sourceRisk === "safe" || sourceRisk === "low"
+          ? "safe"
+          : zone?.type === "restricted"
+            ? "danger"
+            : zone?.type === "high_crime" || zone?.type === "time_based"
+              ? "moderate"
+              : "safe";
+
+  return {
+    ...zone,
+    riskLevel,
+  };
+}
+
+function isPointInPolygon(point, polygon) {
+  const y = Number(point[0]);
+  const x = Number(point[1]);
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const yi = Number(polygon[i][0]);
+    const xi = Number(polygon[i][1]);
+    const yj = Number(polygon[j][0]);
+    const xj = Number(polygon[j][1]);
+
+    const intersects =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi || 1e-12) + xi;
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
 router.get("/api/zones", (req, res) => {
   try {
     const parsed = loadZonesFile();
@@ -73,14 +143,74 @@ router.get("/api/zones/:city", (req, res) => {
   }
 });
 
+router.post("/api/geofence/check", (req, res) => {
+  try {
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+    const city = String(req.body?.city || "nagpur")
+      .trim()
+      .toLowerCase();
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res
+        .status(400)
+        .json({ error: "lat and lng must be valid numbers" });
+    }
+
+    const parsed = loadZonesFile();
+    const cityPayload = resolveCityPayload(parsed, city);
+    const zones = Array.isArray(cityPayload?.zones) ? cityPayload.zones : [];
+    const point = [lat, lng];
+
+    const matchedZone =
+      zones
+        .map(normalizeZoneForCheck)
+        .find(
+          (zone) =>
+            Array.isArray(zone?.coordinates) &&
+            zone.coordinates.length >= 3 &&
+            isPointInPolygon(point, zone.coordinates),
+        ) || null;
+
+    return res.json({
+      city: cityPayload.city || city,
+      zoneName: matchedZone?.name || null,
+      riskLevel: matchedZone?.riskLevel || "safe",
+      zoneId: matchedZone?.id || null,
+    });
+  } catch (err) {
+    console.log("GEOFENCE /api/geofence/check ERROR:", err);
+    return res.status(500).json({ error: "Failed to check geofence" });
+  }
+});
+
 router.get("/api/cities", (req, res) => {
   try {
     const parsed = loadZonesFile();
+    const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
 
     if (Array.isArray(parsed)) {
-      return res.json([
-        { key: "nagpur", city: "Nagpur", center: [21.1458, 79.0882], zoneCount: parsed.length },
-      ]);
+      const cities = [
+        {
+          key: "nagpur",
+          city: "Nagpur",
+          center: [21.1458, 79.0882],
+          zoneCount: parsed.length,
+        },
+      ];
+
+      if (gadchiroliParsed && Array.isArray(gadchiroliParsed.zones)) {
+        cities.push({
+          key: "gadchiroli",
+          city: gadchiroliParsed.city || "gadchiroli",
+          center: Array.isArray(gadchiroliParsed.center)
+            ? gadchiroliParsed.center
+            : [20.1849, 80.003],
+          zoneCount: gadchiroliParsed.zones.length,
+        });
+      }
+
+      return res.json(cities);
     }
 
     const cities = Object.entries(parsed).map(([key, value]) => ({
@@ -89,6 +219,17 @@ router.get("/api/cities", (req, res) => {
       center: Array.isArray(value?.center) ? value.center : [21.1458, 79.0882],
       zoneCount: Array.isArray(value?.zones) ? value.zones.length : 0,
     }));
+
+    if (gadchiroliParsed && Array.isArray(gadchiroliParsed.zones)) {
+      cities.push({
+        key: "gadchiroli",
+        city: gadchiroliParsed.city || "gadchiroli",
+        center: Array.isArray(gadchiroliParsed.center)
+          ? gadchiroliParsed.center
+          : [20.1849, 80.003],
+        zoneCount: gadchiroliParsed.zones.length,
+      });
+    }
 
     cities.push({
       key: "nagpur-demo",
