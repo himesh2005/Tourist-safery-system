@@ -708,6 +708,14 @@ app.get("/debug/state", (req, res) => {
   });
 });
 
+app.get("/api/test-vercel-sms", async (req, res) => {
+  const result = await sendSMSViaVercel(
+    "Test from Tourist Safety System backend watchdog",
+    "8432419551",
+  );
+  res.json(result);
+});
+
 app.post("/api/user/heartbeat", authMiddleware, async (req, res) => {
   try {
     const { username } = req.user || {};
