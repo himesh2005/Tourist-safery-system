@@ -47,12 +47,6 @@ const PRIVATE_KEY = (process.env.PRIVATE_KEY || "")
   .replace(/^"|"$/g, "");
 const JWT_SECRET = (process.env.JWT_SECRET || "dev_secret").trim();
 const PORT = Number((process.env.PORT || "5000").trim());
-const FAST2SMS_KEY = (process.env.FAST2SMS_KEY || "").trim();
-const DEMO_EMERGENCY_NUMBER = (
-  process.env.DEMO_EMERGENCY_NUMBER || "918432419551"
-)
-  .trim()
-  .replace(/[^\d]/g, "");
 function getLocalIPv4() {
   const interfaces = os.networkInterfaces();
   for (const addresses of Object.values(interfaces)) {
@@ -196,6 +190,14 @@ function readCityJson(fileName) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function cleanCity(city) {
+  return String(city || "")
+    .toLowerCase()
+    .replace(/\s*\(\d+\)\s*/g, "")
+    .replace(/\d+/g, "")
+    .trim();
+}
+
 const loaded = loadData();
 const users = new Map(Object.entries(loaded.users || {})); // username -> { username, passHash, blockchainId }
 const profiles = new Map(Object.entries(loaded.profiles || {})); // blockchainId -> profile
@@ -213,38 +215,6 @@ function saveData() {
     DATA_PATH,
     JSON.stringify({ users: usersObj, profiles: profilesObj }, null, 2),
   );
-}
-
-async function sendEmergencySms(message, number = DEMO_EMERGENCY_NUMBER) {
-  if (!FAST2SMS_KEY) {
-    return {
-      success: false,
-      error: "FAST2SMS_KEY is not configured",
-      fallbackNumber: number,
-    };
-  }
-
-  const response = await fetch("https://api.fast2sms.com/dev/bulkV2", {
-    method: "POST",
-    headers: {
-      authorization: FAST2SMS_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      route: "q",
-      message,
-      language: "english",
-      flash: 0,
-      numbers: number,
-    }),
-  });
-
-  const result = await response.json();
-  if (!response.ok) {
-    throw new Error(result?.message || "Fast2SMS request failed");
-  }
-
-  return { success: true, result };
 }
 
 // ===== Contract address loading =====
@@ -610,12 +580,16 @@ app.get("/debug/state", (req, res) => {
 
 app.post("/api/user/last-location", authMiddleware, (req, res) => {
   try {
-    const { username } = req.user;
+    const { username, id } = req.user || {};
     const user = users.get(username);
-    if (!user) return res.status(404).json({ error: "user not found" });
+    if (!user) {
+      return res.json({ success: false });
+    }
 
     const profile = profiles.get(user.blockchainId);
-    if (!profile) return res.status(404).json({ error: "profile not found" });
+    if (!profile) {
+      return res.json({ success: false });
+    }
 
     const lat = Number(req.body?.lat);
     const lng = Number(req.body?.lng);
@@ -626,7 +600,7 @@ app.post("/api/user/last-location", authMiddleware, (req, res) => {
       .toLowerCase();
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ error: "lat and lng are required" });
+      return res.json({ success: false });
     }
 
     profile.lastKnownLocation = {
@@ -637,47 +611,16 @@ app.post("/api/user/last-location", authMiddleware, (req, res) => {
       riskLevel: riskLevel || "safe",
     };
     profiles.set(user.blockchainId, profile);
+    if (id) {
+      user.lastKnownLocation = profile.lastKnownLocation;
+      users.set(username, user);
+    }
     saveData();
 
-    return res.json({
-      success: true,
-      lastKnownLocation: profile.lastKnownLocation,
-    });
+    return res.json({ success: true });
   } catch (err) {
     console.log("USER LAST LOCATION ERROR:", err);
-    return res.status(500).json({ error: "Failed to save last location" });
-  }
-});
-
-app.post("/api/emergency/sos", async (req, res) => {
-  try {
-    const { lat, lng, userId, zoneName, riskLevel, message } = req.body || {};
-    const payloadMessage = String(message || "").trim();
-    if (!payloadMessage) {
-      return res.status(400).json({ error: "message is required" });
-    }
-
-    const smsResult = await sendEmergencySms(
-      payloadMessage,
-      DEMO_EMERGENCY_NUMBER,
-    );
-    return res.json({
-      success: true,
-      lat,
-      lng,
-      userId: userId || "",
-      zoneName: zoneName || "",
-      riskLevel: riskLevel || "",
-      result: smsResult.result || smsResult,
-      number: DEMO_EMERGENCY_NUMBER,
-    });
-  } catch (err) {
-    console.log("EMERGENCY SOS ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      error: err?.message || "Failed to send SOS alert",
-      number: DEMO_EMERGENCY_NUMBER,
-    });
+    return res.json({ success: false });
   }
 });
 
@@ -689,59 +632,63 @@ app.post("/api/emergency/location-alert", async (req, res) => {
       return res.status(400).json({ error: "message is required" });
     }
 
-    const smsResult = await sendEmergencySms(
-      payloadMessage,
-      DEMO_EMERGENCY_NUMBER,
-    );
+    const profileKey = profiles.has(userId)
+      ? userId
+      : users.get(userId || "")?.blockchainId || "";
+    if (profileKey && profiles.has(profileKey)) {
+      const profile = profiles.get(profileKey);
+      profile.lastLocationAlert = {
+        message: payloadMessage,
+        createdAt: new Date().toISOString(),
+      };
+      profiles.set(profileKey, profile);
+      saveData();
+    }
+
     return res.json({
       success: true,
       userId: userId || "",
-      result: smsResult.result || smsResult,
-      number: DEMO_EMERGENCY_NUMBER,
+      recorded: Boolean(profileKey && profiles.has(profileKey)),
     });
   } catch (err) {
     console.log("LOCATION ALERT ERROR:", err);
     return res.status(500).json({
       success: false,
-      error: err?.message || "Failed to send location alert",
-      number: DEMO_EMERGENCY_NUMBER,
+      error: err?.message || "Failed to record location alert",
     });
   }
 });
 
 app.get("/api/tourist-spots/:city", (req, res) => {
   try {
-    const city = String(req.params.city || "")
-      .trim()
-      .toLowerCase();
-    const data = readCityJson(`${city}-tourist-spots.json`);
-    if (!data) {
-      return res
-        .status(404)
-        .json({ error: "Tourist spots not found for city" });
+    const city = cleanCity(req.params.city);
+    const filePath = path.join(CITY_ROUTES_DIR, `${city}-tourist-spots.json`);
+    if (!fs.existsSync(filePath)) {
+      return res.json({ spots: [] });
     }
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
     return res.json(data);
   } catch (err) {
     console.log("TOURIST SPOTS /api/tourist-spots/:city ERROR:", err);
-    return res.status(500).json({ error: "Failed to load tourist spots" });
+    return res.json({ spots: [] });
   }
 });
 
 app.get("/api/emergency-services/:city", (req, res) => {
   try {
-    const city = String(req.params.city || "")
-      .trim()
-      .toLowerCase();
-    const data = readCityJson(`${city}-emergency-services.json`);
-    if (!data) {
-      return res
-        .status(404)
-        .json({ error: "Emergency services not found for city" });
+    const city = cleanCity(req.params.city);
+    const filePath = path.join(
+      CITY_ROUTES_DIR,
+      `${city}-emergency-services.json`,
+    );
+    if (!fs.existsSync(filePath)) {
+      return res.json({ policeStations: [], hospitals: [] });
     }
+    const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
     return res.json(data);
   } catch (err) {
     console.log("EMERGENCY SERVICES /api/emergency-services/:city ERROR:", err);
-    return res.status(500).json({ error: "Failed to load emergency services" });
+    return res.json({ policeStations: [], hospitals: [] });
   }
 });
 

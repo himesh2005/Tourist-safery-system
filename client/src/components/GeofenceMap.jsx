@@ -9,6 +9,7 @@ const BASE_API_URL = String(API_URL || "http://localhost:5000").replace(
 );
 const api = (path = "") =>
   `${BASE_API_URL}${String(path).startsWith("/") ? path : `/${path}`}`;
+const SMS_API_PATH = "/api/send-sms";
 
 const GADCHIROLI_CENTER = [20.1849, 80.003];
 const NAGPUR_CENTER = [21.1458, 79.0882];
@@ -581,14 +582,18 @@ export default function GeofenceMap({
 
     try {
       if (!navigator.onLine) throw new Error("offline");
-      await fetch(api("/api/emergency/location-alert"), {
+      const response = await fetch(SMS_API_PATH, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: storedUser.id || effectiveUserProfile.id,
           message: alertMessage,
+          number: "8432419551",
         }),
       });
+      const result = await response.json();
+      if (!response.ok || result?.success !== true) {
+        throw new Error(result?.error || "SMS send failed");
+      }
       showActionBanner(
         "Emergency contact notified with last known location",
         "success",
@@ -689,17 +694,20 @@ export default function GeofenceMap({
     try {
       showSOSResult("loading", "Sending alert...");
 
-      const response = await fetch(api("/api/emergency/sos"), {
+      const response = await fetch(SMS_API_PATH, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthToken()}`,
         },
-        body: JSON.stringify({ lat, lng, message: sosMessage }),
+        body: JSON.stringify({
+          message: sosMessage,
+          number: "8432419551",
+        }),
         signal: AbortSignal.timeout(8000),
       });
+      const result = await response.json();
 
-      if (response.ok) {
+      if (response.ok && result?.success === true) {
         showSOSResult(
           "success",
           "✅ Emergency alert sent successfully via SMS",
@@ -709,7 +717,7 @@ export default function GeofenceMap({
           "success",
         );
       } else {
-        throw new Error("Backend failed");
+        throw new Error(result?.error || "SMS send failed");
       }
     } catch {
       window.location.href = `sms:8432419551?body=${encodeURIComponent(sosMessage)}`;
