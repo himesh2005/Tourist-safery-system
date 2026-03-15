@@ -742,7 +742,13 @@ setInterval(async () => {
       }
 
       if (profile.offlineAlertSent) continue;
-      if (profile.lastHeartbeat.riskLevel === "safe") continue;
+      if (
+        profile.lastHeartbeat.riskLevel === "safe" &&
+        profile.lastHeartbeat.zoneName &&
+        profile.lastHeartbeat.zoneName !== "Unknown"
+      ) {
+        continue;
+      }
 
       const heartbeatTimestamp = Number(profile.lastHeartbeat.timestamp || 0);
       const timeSinceHeartbeat = now - heartbeatTimestamp;
@@ -750,8 +756,12 @@ setInterval(async () => {
 
       const zoneDesc =
         profile.lastHeartbeat.riskLevel === "danger"
-          ? "DANGER ZONE â€” Restricted/Naxal affected area. Stay alert."
-          : "MODERATE ZONE â€” High crime area. Exercise caution.";
+          ? "DANGER ZONE — Restricted/Naxal affected area. Stay alert."
+          : profile.lastHeartbeat.riskLevel === "moderate"
+            ? "MODERATE ZONE — High crime area. Exercise caution."
+            : profile.lastHeartbeat.riskLevel === "safe"
+              ? "SAFE ZONE — Area is generally safe."
+              : "OUTSIDE MAPPED ZONES — Location could not be classified. Stay cautious.";
 
       const smsMessage =
         `Tourist Safety Alert\n` +
@@ -1452,3 +1462,4 @@ app.get("/my-card", authMiddleware, async (req, res) => {
     console.log(`Server running on LAN at ${BASE_URL}`);
   });
 })();
+
