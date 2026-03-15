@@ -1,16 +1,58 @@
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+    });
+    req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ success: false, error: "Method not allowed" });
+  const method = String(req.method || "GET").toUpperCase();
+
+  if (method === "OPTIONS") return res.status(200).end();
+
+  if (method === "GET") {
+    const message = req.query?.message;
+    const number = req.query?.number;
+    if (!message || !number) {
+      return res.status(200).json({
+        success: true,
+        reachable: true,
+        method,
+        note: "Use POST with JSON body or GET with ?message=...&number=...",
+      });
+    }
+    req.body = { message, number };
+  } else if (method !== "POST") {
+    return res.status(200).json({
+      success: false,
+      error: "Unsupported method",
+      method,
+    });
   }
 
   let body = req.body || {};
+  if (
+    method === "POST" &&
+    (!body || (typeof body === "object" && Object.keys(body).length === 0))
+  ) {
+    try {
+      const rawBody = await readRawBody(req);
+      if (rawBody) {
+        body = JSON.parse(rawBody);
+      }
+    } catch {
+      body = {};
+    }
+  }
+
   if (typeof body === "string") {
     try {
       body = JSON.parse(body);
