@@ -5,7 +5,9 @@ module.exports = async (req, res) => {
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") {
-    return res.status(405).json({ success: false, error: "Method not allowed" });
+    return res
+      .status(405)
+      .json({ success: false, error: "Method not allowed" });
   }
 
   let body = req.body || {};
@@ -26,8 +28,7 @@ module.exports = async (req, res) => {
       .json({ success: false, error: "Missing message or number" });
   }
 
-  const apiKey =
-    process.env.FAST2SMS_KEY || process.env.FAST2SMS_API_KEY || "";
+  const apiKey = process.env.FAST2SMS_KEY || process.env.FAST2SMS_API_KEY || "";
   if (!apiKey) {
     return res.status(500).json({
       success: false,
@@ -72,11 +73,13 @@ module.exports = async (req, res) => {
           try {
             parsed = JSON.parse(data);
           } catch {
-            return res.status(502).json({
+            res.status(502).json({
               success: false,
               error: "Invalid Fast2SMS response",
               raw: data,
             });
+            resolve();
+            return;
           }
 
           console.log("Fast2SMS response:", JSON.stringify(parsed));
@@ -85,21 +88,23 @@ module.exports = async (req, res) => {
             response.statusCode < 300 &&
             parsed?.return === true;
 
-          return res.status(success ? 200 : 502).json({
+          res.status(success ? 200 : 502).json({
             success,
             statusCode: response.statusCode,
             result: parsed,
             error: success ? undefined : parsed?.message || "Fast2SMS failed",
           });
+          resolve();
         });
       },
     );
 
     request.on("error", (error) => {
       console.error("Request error:", error.message);
-      return res
+      res
         .status(500)
         .json({ success: false, error: error.message || "Request failed" });
+      resolve();
     });
 
     request.write(postData);
