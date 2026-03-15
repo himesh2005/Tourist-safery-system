@@ -2,6 +2,7 @@ require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const https = require("https");
 
 const express = require("express");
 
@@ -235,28 +236,57 @@ function saveData() {
   );
 }
 
-async function sendSMSViaVercel(message, number) {
-  try {
-    const vercelUrl = String(
-      process.env.FRONTEND_URL ||
-        "https://tourist-safety-system-theta.vercel.app",
-    )
-      .trim()
-      .replace(/\/+$/, "");
+function sendSMSViaHTTPS(message, number) {
+  return new Promise((resolve) => {
+    const cleanNumber = number
+      .toString()
+      .replace(/^\+91/, "")
+      .replace(/^91/, "");
 
-    const response = await fetch(`${vercelUrl}/api/send-sms`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, number }),
+    const postData = JSON.stringify({
+      route: "q",
+      message,
+      language: "english",
+      flash: 0,
+      numbers: cleanNumber,
     });
 
-    const result = await response.json();
-    console.log("SMS result:", result);
-    return result;
-  } catch (err) {
-    console.error("sendSMSViaVercel error:", err.message);
-    return { success: false };
-  }
+    const options = {
+      hostname: "api.fast2sms.com",
+      port: 443,
+      path: "/dev/bulkV2",
+      method: "POST",
+      headers: {
+        authorization: process.env.FAST2SMS_KEY,
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(postData),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => {
+        data += chunk;
+      });
+      res.on("end", () => {
+        try {
+          const result = JSON.parse(data);
+          console.log("Fast2SMS direct result:", result);
+          resolve(result);
+        } catch (e) {
+          resolve({ success: false, error: "parse error", raw: data });
+        }
+      });
+    });
+
+    req.on("error", (err) => {
+      console.error("HTTPS request error:", err.message);
+      resolve({ success: false, error: err.message });
+    });
+
+    req.write(postData);
+    req.end();
+  });
 }
 
 async function checkAllUsersOfflineStatus() {
@@ -335,7 +365,7 @@ async function checkAllUsersOfflineStatus() {
       continue;
     }
 
-    const result = await sendSMSViaVercel(smsMessage, userPhone);
+    const result = await sendSMSViaHTTPS(smsMessage, userPhone);
     console.log("SMS sent result:", JSON.stringify(result));
 
     if (result?.success === true) {
@@ -716,6 +746,14 @@ app.get("/debug/state", (req, res) => {
     profileIds: Array.from(profiles.keys()).slice(0, 20),
     contractAddress: CONTRACT_ADDRESS,
   });
+});
+
+app.get("/api/test-sms", async (req, res) => {
+  const result = await sendSMSViaHTTPS(
+    "Test from Tourist Safety System",
+    "8432419551",
+  );
+  res.json(result);
 });
 
 app.post("/api/user/heartbeat", authMiddleware, async (req, res) => {
