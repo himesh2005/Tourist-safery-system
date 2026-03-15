@@ -1,8 +1,8 @@
 {
-  "network": "amoy",
-  "chainId": 80002,
-  "deployedAt": "2026-03-09T11:02:25.641Z",
+  "network": "localhost",
+  "chainId": null,
+  "deployedAt": "2026-03-15T14:05:47.617Z",
   "contracts": {
-    "TravellerID": "0x69CF417682ADA3b9caa92637B7C0a877D43dbcF9"
+    "TravellerID": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
   }
 }

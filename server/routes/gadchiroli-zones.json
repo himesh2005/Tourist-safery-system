@@ -1,0 +1,312 @@
+{
+  "city": "gadchiroli",
+  "state": "Maharashtra",
+  "country": "India",
+  "dataSource": "NCRB Crime in India 2022 Vol II + District Social & Economic Review 2023 + gadchiroli.gov.in/police",
+  "zones": [
+
+    {
+      "id": "bhamragad",
+      "name": "Bhamragad Taluka",
+      "riskLevel": "danger",
+      "riskScore": 65,
+      "crimeScore": 5,
+      "lweScore": 60,
+      "lweDesignated": true,
+      "reportedCrimes2022": 7,
+      "reason": "Officially designated Naxal-affected by Maharashtra Govt (gadchiroli.gov.in/police). LWE designation contributes 60 pts. Low reported crime is a documented under-reporting pattern in active conflict zones per NCRB notes.",
+      "source": "gadchiroli.gov.in/police + NCRB 2022 Vol II Table 10B.2",
+      "coordinates": [
+        [19.55, 80.22],
+        [19.55, 80.50],
+        [19.48, 80.55],
+        [19.38, 80.52],
+        [19.28, 80.45],
+        [19.25, 80.30],
+        [19.30, 80.18],
+        [19.40, 80.15],
+        [19.50, 80.18],
+        [19.55, 80.22]
+      ]
+    },
+
+    {
+      "id": "etapalli",
+      "name": "Etapalli Taluka",
+      "riskLevel": "danger",
+      "riskScore": 70,
+      "crimeScore": 10,
+      "lweScore": 60,
+      "lweDesignated": true,
+      "reportedCrimes2022": 13,
+      "reason": "Officially designated Naxal-affected. Dense forest border with Chhattisgarh state — active Maoist movement corridor. Score 70.",
+      "source": "gadchiroli.gov.in/police + NCRB 2022 Vol II Table 10B.2",
+      "coordinates": [
+        [19.60, 80.05],
+        [19.60, 80.22],
+        [19.55, 80.22],
+        [19.50, 80.18],
+        [19.40, 80.15],
+        [19.35, 80.10],
+        [19.35, 79.95],
+        [19.42, 79.90],
+        [19.52, 79.92],
+        [19.60, 80.05]
+      ]
+    },
+
+    {
+      "id": "aheri",
+      "name": "Aheri Taluka",
+      "riskLevel": "danger",
+      "riskScore": 84,
+      "crimeScore": 24,
+      "lweScore": 60,
+      "lweDesignated": true,
+      "reportedCrimes2022": 30,
+      "reason": "Highest risk score (84). Officially designated Naxal-affected AND highest crime count among LWE talukas (30 crimes: 6 rape, 8 harassment, 10 child rape, 6 abduction). Maharashtra-Telangana border sensitivity.",
+      "source": "gadchiroli.gov.in/police + District Review 2023 + NCRB 2022 Vol II Table 10B.2",
+      "coordinates": [
+        [19.85, 79.88],
+        [19.85, 80.10],
+        [19.78, 80.15],
+        [19.68, 80.12],
+        [19.60, 80.05],
+        [19.52, 79.92],
+        [19.55, 79.78],
+        [19.62, 79.72],
+        [19.72, 79.72],
+        [19.80, 79.80],
+        [19.85, 79.88]
+      ]
+    },
+
+    {
+      "id": "sironcha",
+      "name": "Sironcha Taluka",
+      "riskLevel": "danger",
+      "riskScore": 75,
+      "crimeScore": 15,
+      "lweScore": 60,
+      "lweDesignated": true,
+      "reportedCrimes2022": 19,
+      "reason": "Officially designated Naxal-affected. Maharashtra-Telangana-Chhattisgarh tri-border zone. Historically most active Maoist corridor. Score 75.",
+      "source": "gadchiroli.gov.in/police + NCRB 2022 Vol II Table 10B.2",
+      "coordinates": [
+        [19.25, 80.30],
+        [19.28, 80.45],
+        [19.15, 80.48],
+        [18.95, 80.42],
+        [18.78, 80.28],
+        [18.72, 80.05],
+        [18.75, 79.88],
+        [18.88, 79.80],
+        [19.05, 79.82],
+        [19.18, 79.90],
+        [19.25, 80.05],
+        [19.30, 80.18],
+        [19.25, 80.30]
+      ]
+    },
+
+    {
+      "id": "chamorshi",
+      "name": "Chamorshi Taluka",
+      "riskLevel": "moderate",
+      "riskScore": 40,
+      "crimeScore": 40,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 49,
+      "reason": "HIGHEST reported crime taluka in district (49 total: 2 rape, 18 harassment, 12 child rape — highest in district, 17 abduction). No LWE designation but significant conventional crime. Score 40.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.10, 79.75],
+        [20.10, 80.00],
+        [19.98, 80.05],
+        [19.88, 80.00],
+        [19.78, 80.00],
+        [19.72, 79.88],
+        [19.72, 79.72],
+        [19.80, 79.65],
+        [19.92, 79.65],
+        [20.02, 79.68],
+        [20.10, 79.75]
+      ]
+    },
+
+    {
+      "id": "gadchiroli-taluka",
+      "name": "Gadchiroli Town & Taluka",
+      "riskLevel": "moderate",
+      "riskScore": 35,
+      "crimeScore": 35,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 43,
+      "reason": "District HQ with police presence but 2nd highest crime count (43): 26 sexual harassment cases (highest in district), 7 child rape, 9 abductions. Urban density drives crime. Score 35.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.28, 79.88],
+        [20.28, 80.10],
+        [20.18, 80.12],
+        [20.10, 80.10],
+        [20.10, 80.00],
+        [20.10, 79.88],
+        [20.15, 79.80],
+        [20.22, 79.78],
+        [20.28, 79.88]
+      ]
+    },
+
+    {
+      "id": "dhanora",
+      "name": "Dhanora Taluka",
+      "riskLevel": "moderate",
+      "riskScore": 34,
+      "crimeScore": 14,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 18,
+      "reason": "Borderline moderate (score 34). Dense forest with official night-travel advisory from district administration. 18 reported crimes. Upgraded from SAFE due to forest hazard and night danger.",
+      "source": "District Social & Economic Review 2023 + District Advisory",
+      "coordinates": [
+        [20.42, 80.05],
+        [20.42, 80.28],
+        [20.30, 80.30],
+        [20.20, 80.25],
+        [20.18, 80.12],
+        [20.28, 80.10],
+        [20.32, 80.05],
+        [20.38, 80.02],
+        [20.42, 80.05]
+      ]
+    },
+
+    {
+      "id": "mulchera",
+      "name": "Mulchera Taluka",
+      "riskLevel": "safe",
+      "riskScore": 6,
+      "crimeScore": 6,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 8,
+      "reason": "Low crime (8 total), no LWE designation. Score 6. Safe for tourists.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.48, 80.10],
+        [20.48, 80.38],
+        [20.42, 80.42],
+        [20.30, 80.38],
+        [20.20, 80.32],
+        [20.20, 80.25],
+        [20.30, 80.30],
+        [20.42, 80.28],
+        [20.42, 80.10],
+        [20.48, 80.10]
+      ]
+    },
+
+    {
+      "id": "armori",
+      "name": "Armori Taluka",
+      "riskLevel": "safe",
+      "riskScore": 13,
+      "crimeScore": 13,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 17,
+      "reason": "North Gadchiroli — officially declared Naxal-free by CM Devendra Fadnavis, December 2024. 17 crimes, Score 13. Safe zone.",
+      "source": "CM Fadnavis Statement Dec 2024 + District Review 2023",
+      "coordinates": [
+        [20.58, 80.00],
+        [20.58, 80.22],
+        [20.48, 80.28],
+        [20.42, 80.22],
+        [20.42, 80.05],
+        [20.45, 79.95],
+        [20.50, 79.90],
+        [20.55, 79.92],
+        [20.58, 80.00]
+      ]
+    },
+
+    {
+      "id": "desaiganj",
+      "name": "Desaiganj (Wadsa) Taluka",
+      "riskLevel": "safe",
+      "riskScore": 9,
+      "crimeScore": 9,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 11,
+      "reason": "Major commercial and transport hub. North Gadchiroli. 11 crimes, Score 9. Safe zone.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.65, 79.70],
+        [20.65, 80.00],
+        [20.58, 80.00],
+        [20.55, 79.92],
+        [20.50, 79.90],
+        [20.45, 79.85],
+        [20.42, 79.78],
+        [20.45, 79.65],
+        [20.55, 79.62],
+        [20.62, 79.65],
+        [20.65, 79.70]
+      ]
+    },
+
+    {
+      "id": "kurkheda",
+      "name": "Kurkheda Taluka",
+      "riskLevel": "safe",
+      "riskScore": 17,
+      "crimeScore": 17,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 21,
+      "reason": "21 reported crimes — moderate count but no LWE. Score 17. Safe zone with general precaution advised.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.32, 79.60],
+        [20.32, 79.82],
+        [20.22, 79.85],
+        [20.12, 79.80],
+        [20.05, 79.72],
+        [20.05, 79.58],
+        [20.12, 79.50],
+        [20.22, 79.48],
+        [20.30, 79.52],
+        [20.32, 79.60]
+      ]
+    },
+
+    {
+      "id": "korchi",
+      "name": "Korchi Taluka",
+      "riskLevel": "safe",
+      "riskScore": 6,
+      "crimeScore": 6,
+      "lweScore": 0,
+      "lweDesignated": false,
+      "reportedCrimes2022": 8,
+      "reason": "Lowest crime taluka (8 total, tied with Mulchera). Score 6. Safe for tourists. Chaprala Wildlife Sanctuary access zone.",
+      "source": "District Social & Economic Review 2023, Gadchiroli",
+      "coordinates": [
+        [20.10, 79.45],
+        [20.10, 79.65],
+        [20.05, 79.72],
+        [19.95, 79.72],
+        [19.85, 79.65],
+        [19.80, 79.55],
+        [19.82, 79.42],
+        [19.92, 79.35],
+        [20.02, 79.38],
+        [20.10, 79.45]
+      ]
+    }
+
+  ]
+}
