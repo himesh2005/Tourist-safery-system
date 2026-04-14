@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import { API_URL } from "../config/env.js";
@@ -20,6 +20,7 @@ function toUnixTimestamp(dateValue) {
 }
 
 export default function Register() {
+  const nav = useNavigate();
   const [form, setForm] = useState({
     username: "",
     password: "",
@@ -117,7 +118,14 @@ export default function Register() {
         emergencyContact: data.emergencyContact,
         validUntil: data.validUntil,
       });
-      setMsg("Digital tourist ID issued successfully.");
+      if (data?.chainWriteStatus === "local_saved") {
+        setMsg(
+          "Account created locally (blockchain pending due to low funds). Redirecting to login...",
+        );
+        setTimeout(() => nav("/auth"), 1400);
+      } else {
+        setMsg("Digital tourist ID issued successfully.");
+      }
     } catch {
       setMsg("Network error. Please try again.");
     } finally {

@@ -446,6 +446,13 @@ function isMissingFunctionRevert(err) {
   );
 }
 
+function isInsufficientFundsError(err) {
+  const msg = String(
+    err?.shortMessage || err?.reason || err?.message || err || "",
+  ).toLowerCase();
+  return msg.includes("insufficient funds");
+}
+
 // Stable hash for verification
 function sha256Hex(str) {
   return "0x" + crypto.createHash("sha256").update(str).digest("hex");
@@ -722,6 +729,8 @@ app.post("/auth/register", async (req, res) => {
     let txHash = null;
     let blockchainId = "";
     let chainMode = "createTouristId";
+    let chainWriteStatus = "success";
+    let chainWriteError = "";
 
     try {
       const tx = await contract.createTouristId(
@@ -752,47 +761,68 @@ app.post("/auth/register", async (req, res) => {
       );
 
       if (!isMissingFunctionRevert(modernErr)) {
-        console.log("REGISTER CHAIN WRITE FAILED:", modernErrorMessage);
-        return res.status(502).json({
-          error: "Failed to create tourist ID on blockchain",
-          chainWriteError: modernErrorMessage,
-        });
+        if (isInsufficientFundsError(modernErr)) {
+          chainMode = "local_only";
+          chainWriteStatus = "local_saved";
+          chainWriteError = modernErrorMessage;
+          blockchainId = `TID-${crypto.randomBytes(6).toString("hex")}`;
+        } else {
+          console.log("REGISTER CHAIN WRITE FAILED:", modernErrorMessage);
+          return res.status(502).json({
+            error: "Failed to create tourist ID on blockchain",
+            chainWriteError: modernErrorMessage,
+          });
+        }
       }
 
-      // Backward compatibility for contracts that still expose createId.
-      chainMode = "createId_legacy";
-      blockchainId = `TID-${crypto.randomBytes(6).toString("hex")}`;
-      const legacyProfileHash = sha256Hex(
-        JSON.stringify({
-          kycHash,
-          itinerary: itineraryText,
-          emergencyContact: emergencyContactText,
-          validUntil: validUntilNumber,
-        }),
-      );
+      if (isMissingFunctionRevert(modernErr)) {
+        // Backward compatibility for contracts that still expose createId.
+        chainMode = "createId_legacy";
+        blockchainId = `TID-${crypto.randomBytes(6).toString("hex")}`;
+        const legacyProfileHash = sha256Hex(
+          JSON.stringify({
+            kycHash,
+            itinerary: itineraryText,
+            emergencyContact: emergencyContactText,
+            validUntil: validUntilNumber,
+          }),
+        );
 
-      try {
-        const legacyTx = await contract.createId(blockchainId, legacyProfileHash);
-        const legacyReceipt = await legacyTx.wait();
-        txHash = legacyReceipt?.hash || null;
-        onChainId = null;
-        blockchainReady = true;
-      } catch (legacyErr) {
-        const modernDetails = modernErrorMessage;
-        const legacyDetails = String(
-          legacyErr?.shortMessage ||
-            legacyErr?.reason ||
-            legacyErr?.message ||
-            legacyErr,
-        );
-        console.log(
-          "REGISTER CHAIN WRITE FAILED:",
-          `modern=${modernDetails} | legacy=${legacyDetails}`,
-        );
-        return res.status(502).json({
-          error: "Failed to create tourist ID on blockchain",
-          chainWriteError: `modern=${modernDetails} | legacy=${legacyDetails}`,
-        });
+        try {
+          const legacyTx = await contract.createId(blockchainId, legacyProfileHash);
+          const legacyReceipt = await legacyTx.wait();
+          txHash = legacyReceipt?.hash || null;
+          onChainId = null;
+          blockchainReady = true;
+        } catch (legacyErr) {
+          const modernDetails = modernErrorMessage;
+          const legacyDetails = String(
+            legacyErr?.shortMessage ||
+              legacyErr?.reason ||
+              legacyErr?.message ||
+              legacyErr,
+          );
+
+          if (isInsufficientFundsError(legacyErr)) {
+            chainMode = "local_only";
+            chainWriteStatus = "local_saved";
+            chainWriteError = `modern=${modernDetails} | legacy=${legacyDetails}`;
+            txHash = null;
+          } else {
+            console.log(
+              "REGISTER CHAIN WRITE FAILED:",
+              `modern=${modernDetails} | legacy=${legacyDetails}`,
+            );
+            return res.status(502).json({
+              error: "Failed to create tourist ID on blockchain",
+              chainWriteError: `modern=${modernDetails} | legacy=${legacyDetails}`,
+            });
+          }
+        }
+      }
+
+      if (!blockchainId) {
+        blockchainId = `TID-${crypto.randomBytes(6).toString("hex")}`;
       }
     }
     const profile = {
@@ -806,6 +836,8 @@ app.post("/auth/register", async (req, res) => {
       createdAt: new Date().toISOString(),
       txHash,
       chainMode,
+      chainWriteStatus,
+      chainWriteError,
     };
 
     users.set(username, {
@@ -827,6 +859,8 @@ app.post("/auth/register", async (req, res) => {
       validUntil: validUntilNumber,
       txHash,
       chainMode,
+      chainWriteStatus,
+      chainWriteError,
     });
   } catch (err) {
     console.log("REGISTER ERROR:", err);
