@@ -21,18 +21,32 @@ const CITY_ROUTES_DIR = path.join(__dirname, "routes", "zones");
 
 let blockchainReady = false;
 
+const allowedOrigins = new Set([
+  "https://tourist-safety-system-git-main-abhi-099a35d4.vercel.app",
+  "https://tourist-safety-system.vercel.app",
+  "http://localhost:5173",
+]);
+const vercelPreviewPattern =
+  /^https:\/\/tourist-safety-system(?:-[a-z0-9-]+)?\.vercel\.app$/;
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow same-origin/curl/mobile requests with no Origin header.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin) || vercelPreviewPattern.test(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 200,
+};
+
 const app = express();
-app.use(
-  cors({
-    origin: [
-      "https://tourist-safety-system-git-main-abhi-099a35d4.vercel.app",
-      "https://tourist-safety-system.vercel.app",
-      "http://localhost:5173",
-    ],
-    methods: ["GET", "POST", "OPTIONS"],
-    credentials: true,
-  }),
-);
+app.use(cors(corsOptions));
+app.options(/^\/.*$/, cors(corsOptions));
 app.use(express.json());
 app.use("/auth", authRoutes);
 app.get("/health", (req, res) => res.json({ status: "ok" }));
@@ -956,6 +970,13 @@ app.post("/api/check-username", (req, res) => {
   return res.json({ available: !users.has(username) });
 });
 
+app.get("/auth/register", (req, res) => {
+  return res.status(405).json({
+    error: "Method not allowed",
+    message: "Use POST /auth/register with JSON body.",
+  });
+});
+
 app.post("/auth/register", async (req, res) => {
   try {
     const {
@@ -1068,6 +1089,12 @@ app.post("/auth/register", async (req, res) => {
     console.log("REGISTER ERROR:", err);
     res.status(500).json({ error: "register failed", details: String(err) });
   }
+});
+app.get("/auth/login", (req, res) => {
+  return res.status(405).json({
+    error: "Method not allowed",
+    message: "Use POST /auth/login with JSON body.",
+  });
 });
 app.post("/auth/login", async (req, res) => {
   try {
