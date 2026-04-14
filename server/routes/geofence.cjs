@@ -188,6 +188,7 @@ router.get("/api/cities", (req, res) => {
   try {
     const parsed = loadZonesFile();
     const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
+    const allowedKeys = new Set(["nagpur", "gadchiroli"]);
 
     if (Array.isArray(parsed)) {
       const cities = [
@@ -213,14 +214,24 @@ router.get("/api/cities", (req, res) => {
       return res.json(cities);
     }
 
-    const cities = Object.entries(parsed).map(([key, value]) => ({
-      key,
-      city: value?.city || key,
-      center: Array.isArray(value?.center) ? value.center : [21.1458, 79.0882],
-      zoneCount: Array.isArray(value?.zones) ? value.zones.length : 0,
-    }));
+    const cities = Object.entries(parsed)
+      .filter(([key]) => allowedKeys.has(String(key || "").toLowerCase()))
+      .map(([key, value]) => ({
+        key,
+        city: value?.city || key,
+        center: Array.isArray(value?.center)
+          ? value.center
+          : key === "gadchiroli"
+            ? [20.1849, 80.003]
+            : [21.1458, 79.0882],
+        zoneCount: Array.isArray(value?.zones) ? value.zones.length : 0,
+      }));
 
-    if (gadchiroliParsed && Array.isArray(gadchiroliParsed.zones)) {
+    if (
+      !cities.some((city) => city.key === "gadchiroli") &&
+      gadchiroliParsed &&
+      Array.isArray(gadchiroliParsed.zones)
+    ) {
       cities.push({
         key: "gadchiroli",
         city: gadchiroliParsed.city || "gadchiroli",
@@ -230,13 +241,6 @@ router.get("/api/cities", (req, res) => {
         zoneCount: gadchiroliParsed.zones.length,
       });
     }
-
-    cities.push({
-      key: "nagpur-demo",
-      city: "Nagpur (Demo Alert Mode)",
-      center: [21.1458, 79.0882],
-      zoneCount: 3,
-    });
 
     return res.json(cities);
   } catch (err) {

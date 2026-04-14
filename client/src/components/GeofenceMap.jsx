@@ -644,23 +644,25 @@ export default function GeofenceMap({
     [emergencyInfo.police_stations, userPosition],
   );
   const nearbyServices = [...nearestHospitals, ...nearestPoliceStations];
+  const storedProfile = JSON.parse(localStorage.getItem("userProfile") || "{}");
   const effectiveUserProfile = {
     id: userProfile?.blockchainId || blockchainId || "",
     blockchainId: userProfile?.blockchainId || blockchainId || "",
     name:
       userProfile?.name ||
       travelerName ||
-      JSON.parse(localStorage.getItem("userProfile") || "{}")?.name ||
+      storedProfile?.name ||
       "Traveler",
     phone:
       userProfile?.mobile ||
-      JSON.parse(localStorage.getItem("userProfile") || "{}")?.phone ||
+      storedProfile?.phone ||
       "",
     emergencyContact:
       userProfile?.emergencyContacts ||
-      JSON.parse(localStorage.getItem("userProfile") || "{}")
-        ?.emergencyContact ||
+      storedProfile?.emergencyContact ||
       "",
+    kyc: userProfile?.kyc || storedProfile?.kyc || "",
+    validUntil: userProfile?.validUntil || storedProfile?.validUntil || null,
   };
 
   function getCurrentHour() {
@@ -1264,35 +1266,21 @@ export default function GeofenceMap({
         if (!response.ok) throw new Error("Cities fetch failed");
         const payload = await response.json();
         if (cancelled || !Array.isArray(payload)) return;
-
-        const hasDemo = payload.some((city) => city.key === "nagpur-demo");
-        setCities(
-          hasDemo
-            ? payload
-            : [
-                ...payload,
-                {
-                  key: "nagpur-demo",
-                  city: "Nagpur (Demo Alert Mode)",
-                  center: NAGPUR_CENTER,
-                  zoneCount: 3,
-                },
-              ],
-        );
+        setCities(payload);
       } catch {
         if (!cancelled) {
           setCities([
+            {
+              key: "nagpur",
+              city: "Nagpur",
+              center: NAGPUR_CENTER,
+              zoneCount: 0,
+            },
             {
               key: "gadchiroli",
               city: "Gadchiroli",
               center: GADCHIROLI_CENTER,
               zoneCount: 0,
-            },
-            {
-              key: "nagpur-demo",
-              city: "Nagpur (Demo Alert Mode)",
-              center: NAGPUR_CENTER,
-              zoneCount: 3,
             },
           ]);
         }
@@ -1754,9 +1742,7 @@ export default function GeofenceMap({
               >
                 {cities.map((city) => (
                   <option key={city.key} value={city.key}>
-                    {city.key === "nagpur-demo"
-                      ? "Nagpur (Demo Alert Mode)"
-                      : `${city.city} (${city.zoneCount})`}
+                    {`${city.city} (${city.zoneCount})`}
                   </option>
                 ))}
               </select>
@@ -1772,11 +1758,23 @@ export default function GeofenceMap({
         <div className="gm-user-card">
           <div className="gm-user-avatar">{userInitial}</div>
           <div className="gm-user-meta">
-            <strong>{travelerName || "Traveler"}</strong>
-            <span>{truncateMiddle(blockchainId || "No blockchain ID")}</span>
+            <strong>{effectiveUserProfile.name || "Traveler"}</strong>
+            <span>
+              Digital Tourist ID:{" "}
+              {truncateMiddle(effectiveUserProfile.blockchainId || "Pending")}
+            </span>
+            <span>KYC: {effectiveUserProfile.kyc || "Not available"}</span>
+            <span>
+              Valid Until:{" "}
+              {effectiveUserProfile.validUntil
+                ? new Date(
+                    Number(effectiveUserProfile.validUntil) * 1000,
+                  ).toLocaleDateString()
+                : "Not set"}
+            </span>
           </div>
-          <div className={`gm-user-badge gm-user-badge-${bannerRiskLevel}`}>
-            {zoneStatusText}
+          <div className="gm-user-badge gm-user-badge-safe">
+            Verified
           </div>
         </div>
       </div>
