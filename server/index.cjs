@@ -389,6 +389,7 @@ const ABI = [
   "function createTouristId(string kyc, string itinerary, string emergencyContact, uint256 validUntil) external",
   "function touristIds(address) external view returns (uint256 id, string kyc, string itinerary, string emergencyContact, uint256 validUntil)",
   "function idCounter() external view returns (uint256)",
+  "function createId(string blockchainId, bytes32 profileHash) external",
 ];
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -432,6 +433,17 @@ function maskKyc(value) {
   if (!clean) return "";
   const tail = clean.slice(-4);
   return `${"X".repeat(Math.max(clean.length - 4, 5))}${tail}`;
+}
+
+function isMissingFunctionRevert(err) {
+  const msg = String(
+    err?.shortMessage || err?.reason || err?.message || "",
+  ).toLowerCase();
+  return (
+    msg.includes("no data present") ||
+    msg.includes("missing revert data") ||
+    msg.includes("function selector was not recognized")
+  );
 }
 
 // Stable hash for verification
@@ -708,6 +720,8 @@ app.post("/auth/register", async (req, res) => {
 
     let onChainId = null;
     let txHash = null;
+    let blockchainId = "";
+    let chainMode = "createTouristId";
 
     try {
       const tx = await contract.createTouristId(
@@ -718,21 +732,69 @@ app.post("/auth/register", async (req, res) => {
       );
       const receipt = await tx.wait();
       txHash = receipt?.hash || null;
-      const latestId = await contract.idCounter();
-      onChainId = Number(latestId);
+      try {
+        const latestId = await contract.idCounter();
+        onChainId = Number(latestId);
+      } catch {
+        onChainId = null;
+      }
+      blockchainId =
+        Number.isFinite(onChainId) && onChainId > 0
+          ? `TID-${onChainId}`
+          : `TID-${crypto.randomBytes(6).toString("hex")}`;
       blockchainReady = true;
-    } catch (err) {
-      const chainWriteError = String(
-        err?.shortMessage || err?.reason || err?.message || err,
+    } catch (modernErr) {
+      const modernErrorMessage = String(
+        modernErr?.shortMessage ||
+          modernErr?.reason ||
+          modernErr?.message ||
+          modernErr,
       );
-      console.log("REGISTER CHAIN WRITE FAILED:", chainWriteError);
-      return res.status(502).json({
-        error: "Failed to create tourist ID on blockchain",
-        chainWriteError,
-      });
-    }
 
-    const blockchainId = `TID-${onChainId}`;
+      if (!isMissingFunctionRevert(modernErr)) {
+        console.log("REGISTER CHAIN WRITE FAILED:", modernErrorMessage);
+        return res.status(502).json({
+          error: "Failed to create tourist ID on blockchain",
+          chainWriteError: modernErrorMessage,
+        });
+      }
+
+      // Backward compatibility for contracts that still expose createId.
+      chainMode = "createId_legacy";
+      blockchainId = `TID-${crypto.randomBytes(6).toString("hex")}`;
+      const legacyProfileHash = sha256Hex(
+        JSON.stringify({
+          kycHash,
+          itinerary: itineraryText,
+          emergencyContact: emergencyContactText,
+          validUntil: validUntilNumber,
+        }),
+      );
+
+      try {
+        const legacyTx = await contract.createId(blockchainId, legacyProfileHash);
+        const legacyReceipt = await legacyTx.wait();
+        txHash = legacyReceipt?.hash || null;
+        onChainId = null;
+        blockchainReady = true;
+      } catch (legacyErr) {
+        const modernDetails = modernErrorMessage;
+        const legacyDetails = String(
+          legacyErr?.shortMessage ||
+            legacyErr?.reason ||
+            legacyErr?.message ||
+            legacyErr,
+        );
+        console.log(
+          "REGISTER CHAIN WRITE FAILED:",
+          `modern=${modernDetails} | legacy=${legacyDetails}`,
+        );
+        return res.status(502).json({
+          error: "Failed to create tourist ID on blockchain",
+          chainWriteError: `modern=${modernDetails} | legacy=${legacyDetails}`,
+        });
+      }
+    }
     const profile = {
       blockchainId,
       onChainId,
@@ -743,6 +805,7 @@ app.post("/auth/register", async (req, res) => {
       validUntil: validUntilNumber,
       createdAt: new Date().toISOString(),
       txHash,
+      chainMode,
     };
 
     users.set(username, {
@@ -763,6 +826,7 @@ app.post("/auth/register", async (req, res) => {
       emergencyContact: emergencyContactText,
       validUntil: validUntilNumber,
       txHash,
+      chainMode,
     });
   } catch (err) {
     console.log("REGISTER ERROR:", err);
