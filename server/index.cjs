@@ -21,13 +21,15 @@ const CITY_ROUTES_DIR = path.join(__dirname, "routes", "zones");
 let blockchainReady = false;
 
 const app = express();
-app.use(express.json());
 app.use(
   cors({
     origin: [/https:\/\/tourist-safety-system.*\.vercel\.app$/],
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
+app.use(express.json());
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use("/", geofenceRoutes);
 app.use("/", emergencyRoutes);
