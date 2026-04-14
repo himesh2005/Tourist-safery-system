@@ -13,6 +13,7 @@ const crypto = require("crypto");
 const { ethers, Wallet, getAddress } = require("ethers");
 const { signProfile, verifyProfile } = require("./utils/signature.cjs");
 const { appendVerificationLog } = require("./utils/verificationLogger.cjs");
+const authRoutes = require("./routes/auth");
 const geofenceRoutes = require("./routes/geofence.cjs");
 const emergencyRoutes = require("./routes/emergency.cjs");
 
@@ -24,13 +25,16 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "https://tourist-safety-system-ozflt0248-abhi-099a35d4.vercel.app",
+      "https://tourist-safety-system-git-main-abhi-099a35d4.vercel.app",
+      "https://tourist-safety-system.vercel.app",
+      "http://localhost:5173",
     ],
     methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
   }),
 );
 app.use(express.json());
+app.use("/auth", authRoutes);
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use("/", geofenceRoutes);
 app.use("/", emergencyRoutes);
@@ -1513,6 +1517,7 @@ app.get("/my-card", authMiddleware, async (req, res) => {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running at http://localhost:${PORT}`);
     console.log(`Server running on LAN at ${BASE_URL}`);
     console.log(`CORS middleware initialized. Server ready on port ${PORT}`);
   });
