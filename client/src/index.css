@@ -425,27 +425,6 @@ a:hover {
     z-index: 45;
 }
 
-.qr-drawer {
-    position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 50;
-    width: min(92vw, 360px);
-    height: 100vh;
-    padding: 18px;
-    overflow-y: auto;
-    border-radius: 20px 0 0 20px;
-}
-
-.qr-image {
-    width: 100%;
-    max-width: 240px;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.24);
-    display: block;
-    margin: 10px auto 0;
-}
-
 .copy-row {
     margin-top: 12px;
     display: grid;

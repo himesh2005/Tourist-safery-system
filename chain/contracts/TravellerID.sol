@@ -2,35 +2,30 @@
 pragma solidity ^0.8.24;
 
 contract TravellerID {
-    struct Record {
-        bytes32 profileHash;
-        uint256 createdAt;
-        address issuer;
+    struct TouristID {
+        uint256 id;
+        string kyc;
+        string itinerary;
+        string emergencyContact;
+        uint256 validUntil;
     }
 
-    mapping(string => Record) private records;
+    mapping(address => TouristID) public touristIds;
+    uint256 public idCounter = 0;
 
-    event IdCreated(string blockchainId, bytes32 profileHash, address issuer);
-
-    function createId(string calldata blockchainId, bytes32 profileHash) external {
-        require(records[blockchainId].createdAt == 0, "ID already exists");
-
-        records[blockchainId] = Record({
-            profileHash: profileHash,
-            createdAt: block.timestamp,
-            issuer: msg.sender
-        });
-
-        emit IdCreated(blockchainId, profileHash, msg.sender);
-    }
-
-    function getRecord(string calldata blockchainId)
-        external
-        view
-        returns (bytes32, uint256, address)
-    {
-        Record memory r = records[blockchainId];
-        require(r.createdAt != 0, "ID not found");
-        return (r.profileHash, r.createdAt, r.issuer);
+    function createTouristId(
+        string memory kyc,
+        string memory itinerary,
+        string memory emergencyContact,
+        uint256 validUntil
+    ) public {
+        idCounter++;
+        touristIds[msg.sender] = TouristID(
+            idCounter,
+            kyc,
+            itinerary,
+            emergencyContact,
+            validUntil
+        );
     }
 }

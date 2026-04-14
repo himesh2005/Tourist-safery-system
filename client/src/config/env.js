@@ -30,7 +30,7 @@ function normalizeApiBaseUrl(input) {
     // If someone mistakenly sets an endpoint as base URL, strip known endpoint tails.
     const cleanedPath = url.pathname
       .replace(
-        /\/+(auth\/login|auth\/register|api\/check-username|me|my-card)$/i,
+        /\/+(auth\/login|auth\/register|api\/check-username|me)$/i,
         "",
       )
       .replace(/\/+$/, "");

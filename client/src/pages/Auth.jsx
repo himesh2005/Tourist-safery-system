@@ -49,21 +49,13 @@ export default function Auth() {
           JSON.stringify({
             id: profile.id,
             username: profile.username || username,
-            name: profile.name,
-            phone: profile.phone || profile.emergencyContact,
-            emergencyContact: profile.emergencyContact,
+            name: profile.name || username,
+            phone: profile.phone || profile.emergencyContact || "",
+            emergencyContact: profile.emergencyContact || "",
             blockchainId: profile.blockchainId,
-            bloodGroup: profile.bloodGroup,
-            mobile:
-              profile.profile?.mobile ||
-              profile.phone ||
-              profile.emergencyContact ||
-              "",
-            emergencyContacts:
-              profile.profile?.emergencyContacts ||
-              profile.emergencyContact ||
-              "",
-            address: profile.profile?.address || "",
+            kyc: profile.kyc || profile.profile?.kyc || "",
+            itinerary: profile.itinerary || profile.profile?.itinerary || "",
+            validUntil: profile.validUntil || profile.profile?.validUntil || null,
             profile: profile.profile || null,
           }),
         );

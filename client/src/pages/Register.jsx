@@ -1,164 +1,126 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import { API_URL } from "../config/env.js";
 
-const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-const usernameRegex = /^[A-Za-z0-9]{4,}$/;
-const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
-const mobileRegex = /^\d{10}$/;
 const MotionForm = motion.form;
 const MotionButton = motion.button;
 const MotionP = motion.p;
 const MotionSmall = motion.small;
 
+const usernameRegex = /^[A-Za-z0-9]{4,}$/;
+const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+const mobileRegex = /^\d{10}$/;
+
+function toUnixTimestamp(dateValue) {
+  const epochMs = new Date(dateValue).getTime();
+  if (!Number.isFinite(epochMs)) return null;
+  return Math.floor(epochMs / 1000);
+}
+
 export default function Register() {
-  const nav = useNavigate();
   const [form, setForm] = useState({
     username: "",
     password: "",
-    name: "",
-    mobile: "",
-    bloodGroup: "",
-    allergies: "",
-    emergencyContacts: "",
-    address: "",
+    aadhaarOrPassport: "",
+    itinerary: "",
+    emergencyContact: "",
+    validUntilDate: "",
   });
-  const [errors, setErrors] = useState({});
-  const [msg, setMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [usernameAvailable, setUsernameAvailable] = useState(null);
-  const [checkingUsername, setCheckingUsername] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [issuedId, setIssuedId] = useState(null);
 
-  function set(k, v) {
-    setForm((p) => ({ ...p, [k]: v }));
+  function setField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  useEffect(() => {
-    const username = form.username.trim();
-    if (!usernameRegex.test(username)) {
-      setUsernameAvailable(null);
-      setCheckingUsername(false);
-      return undefined;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        setCheckingUsername(true);
-        const res = await fetch(`${API_URL}/api/check-username`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username }),
-        });
-        const data = await res.json();
-        setUsernameAvailable(Boolean(data.available));
-      } catch {
-        setUsernameAvailable(null);
-      } finally {
-        setCheckingUsername(false);
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [form.username]);
-
-  const computedErrors = useMemo(() => {
+  const errors = useMemo(() => {
     const next = {};
-    const username = form.username.trim();
-    const address = form.address.trim();
-    const contacts = String(form.emergencyContacts || "")
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
 
-    if (!usernameRegex.test(username)) {
+    if (!usernameRegex.test(form.username.trim())) {
       next.username =
         "Username must be alphanumeric, no spaces, minimum 4 characters.";
-    } else if (usernameAvailable === false) {
-      next.username = "Username already exists.";
     }
-
     if (!passwordRegex.test(form.password)) {
       next.password =
         "Password needs 8+ chars with uppercase, lowercase, number, and special character.";
     }
-
-    if (!mobileRegex.test(form.mobile)) {
-      next.mobile = "Mobile number must be exactly 10 digits.";
+    if (!form.aadhaarOrPassport.trim()) {
+      next.aadhaarOrPassport = "Aadhaar or Passport is required.";
+    }
+    if (!form.itinerary.trim()) {
+      next.itinerary = "Trip itinerary is required.";
+    }
+    if (!mobileRegex.test(form.emergencyContact.trim())) {
+      next.emergencyContact = "Emergency contact must be a 10-digit number.";
     }
 
-    if (!BLOOD_GROUPS.includes(form.bloodGroup)) {
-      next.bloodGroup = "Select a valid blood group.";
+    const unix = toUnixTimestamp(form.validUntilDate);
+    if (!unix) {
+      next.validUntilDate = "Select a valid end date.";
+    } else if (unix <= Math.floor(Date.now() / 1000)) {
+      next.validUntilDate = "Validity must be in the future.";
     }
-
-    if (contacts.length === 0 || contacts.some((c) => !mobileRegex.test(c))) {
-      next.emergencyContacts =
-        "Enter comma-separated 10-digit emergency contact numbers.";
-    }
-
-    if (address.length < 10) {
-      next.address = "Address must be at least 10 characters.";
-    }
-
-    if (!form.name.trim()) next.name = "Name is required.";
 
     return next;
-  }, [form, usernameAvailable]);
-
-  useEffect(() => {
-    setErrors(computedErrors);
-  }, [computedErrors]);
+  }, [form]);
 
   async function submit(e) {
     e.preventDefault();
     if (isSubmitting) return;
-    if (Object.keys(computedErrors).length > 0) {
+    if (Object.keys(errors).length > 0) {
       setMsg("Please fix validation errors before submitting.");
       return;
     }
 
+    const validUntil = toUnixTimestamp(form.validUntilDate);
+    if (!validUntil) {
+      setMsg("Invalid validity date.");
+      return;
+    }
+
     setIsSubmitting(true);
-    setMsg("Creating account...");
+    setMsg("Issuing blockchain tourist ID...");
+    setIssuedId(null);
 
     try {
       const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          username: form.username.trim(),
+          password: form.password,
+          aadhaarOrPassport: form.aadhaarOrPassport.trim(),
+          itinerary: form.itinerary.trim(),
+          emergencyContact: form.emergencyContact.trim(),
+          validUntil,
+        }),
       });
 
       const data = await res.json();
-
       if (!res.ok) {
-        const serverDetails = [
-          data?.error,
-          data?.details,
-          data?.chainWriteError,
-        ]
+        const reason = [data?.error, data?.details, data?.chainWriteError]
           .filter(Boolean)
           .join(" | ");
-
-        setMsg(
-          serverDetails
-            ? `Register failed: ${serverDetails}`
-            : "Register failed. Please try again.",
-        );
+        setMsg(reason || "Registration failed.");
         setIsSubmitting(false);
         return;
       }
 
-      if (data?.chainWriteStatus === "failed") {
-        setMsg(
-          "Account created, but blockchain sync is pending. Redirecting...",
-        );
-      } else {
-        setMsg("Account created - Redirecting to login...");
-      }
-      setTimeout(() => nav("/auth"), 1200);
+      setIssuedId({
+        blockchainId: data.blockchainId,
+        kyc: data.kyc,
+        itinerary: data.itinerary,
+        emergencyContact: data.emergencyContact,
+        validUntil: data.validUntil,
+      });
+      setMsg("Digital tourist ID issued successfully.");
     } catch {
       setMsg("Network error. Please try again.");
+    } finally {
       setIsSubmitting(false);
     }
   }
@@ -174,22 +136,15 @@ export default function Register() {
       >
         <h2 className="auth-title">Create Account</h2>
         <p className="auth-subtitle">
-          Register once to get your blockchain safety card.
+          Register to issue your blockchain-based tourist ID.
         </p>
 
         <div className="auth-form">
           <Field
             label="Username"
             value={form.username}
-            onChange={(v) => set("username", v)}
+            onChange={(v) => setField("username", v)}
             error={errors.username}
-            helper={
-              checkingUsername
-                ? "Checking availability..."
-                : usernameAvailable === true
-                  ? "Username available."
-                  : "Minimum 4 alphanumeric characters."
-            }
           />
 
           <Field
@@ -197,7 +152,7 @@ export default function Register() {
             value={form.password}
             type={showPassword ? "text" : "password"}
             autoComplete="new-password"
-            onChange={(v) => set("password", v)}
+            onChange={(v) => setField("password", v)}
             error={errors.password}
             helper="Use upper/lowercase, number and one special character."
             toggle={
@@ -212,59 +167,42 @@ export default function Register() {
           />
 
           <Field
-            label="Full Name"
-            value={form.name}
-            onChange={(v) => set("name", v)}
-            error={errors.name}
+            label="Aadhaar / Passport"
+            value={form.aadhaarOrPassport}
+            onChange={(v) => setField("aadhaarOrPassport", v)}
+            error={errors.aadhaarOrPassport}
           />
+
           <Field
-            label="Mobile Number"
-            value={form.mobile}
+            label="Trip Itinerary"
+            value={form.itinerary}
+            onChange={(v) => setField("itinerary", v)}
+            error={errors.itinerary}
+            helper="Example: Nagpur -> Gadchiroli -> Hemalkasa (5 days)"
+          />
+
+          <Field
+            label="Emergency Contact"
+            value={form.emergencyContact}
             onChange={(v) =>
-              set("mobile", v.replace(/[^\d]/g, "").slice(0, 10))
+              setField("emergencyContact", v.replace(/[^\d]/g, "").slice(0, 10))
             }
-            error={errors.mobile}
+            error={errors.emergencyContact}
             helper="10 digits only."
           />
 
           <div className="field-wrap">
-            <select
-              className="field select-field"
-              value={form.bloodGroup}
-              onChange={(e) => set("bloodGroup", e.target.value)}
-            >
-              <option value="">Select blood group</option>
-              {BLOOD_GROUPS.map((bg) => (
-                <option key={bg} value={bg}>
-                  {bg}
-                </option>
-              ))}
-            </select>
+            <input
+              className="field"
+              type="date"
+              value={form.validUntilDate}
+              onChange={(e) => setField("validUntilDate", e.target.value)}
+            />
             <label className="field-label floating-label-active">
-              Blood Group
+              Valid Until
             </label>
-            <FieldError text={errors.bloodGroup} />
+            <FieldError text={errors.validUntilDate} />
           </div>
-
-          <Field
-            label="Allergies (Optional)"
-            value={form.allergies}
-            onChange={(v) => set("allergies", v)}
-          />
-          <Field
-            label="Emergency Contacts"
-            value={form.emergencyContacts}
-            onChange={(v) => set("emergencyContacts", v)}
-            error={errors.emergencyContacts}
-            helper="Comma separated 10-digit numbers."
-          />
-          <Field
-            label="Address"
-            value={form.address}
-            onChange={(v) => set("address", v)}
-            error={errors.address}
-            helper="Minimum 10 characters."
-          />
         </div>
 
         <div className="auth-actions">
@@ -274,7 +212,7 @@ export default function Register() {
             className="pill-btn"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Creating..." : "Create Account"}
+            {isSubmitting ? "Issuing..." : "Issue Tourist ID"}
           </MotionButton>
           <Link to="/auth">Back to login</Link>
         </div>
@@ -290,6 +228,28 @@ export default function Register() {
             {msg}
           </MotionP>
         </AnimatePresence>
+
+        {issuedId ? (
+          <div className="risk-item" style={{ marginTop: 14 }}>
+            <h4>Digital Tourist ID</h4>
+            <p>
+              <strong>Blockchain Tourist ID:</strong> {issuedId.blockchainId}
+            </p>
+            <p>
+              <strong>KYC (masked):</strong> {issuedId.kyc}
+            </p>
+            <p>
+              <strong>Trip itinerary:</strong> {issuedId.itinerary}
+            </p>
+            <p>
+              <strong>Emergency contact:</strong> {issuedId.emergencyContact}
+            </p>
+            <p>
+              <strong>Valid until:</strong>{" "}
+              {new Date(Number(issuedId.validUntil) * 1000).toLocaleString()}
+            </p>
+          </div>
+        ) : null}
       </MotionForm>
     </div>
   );

@@ -2,7 +2,6 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Auth from "./pages/Auth.jsx";
 import Register from "./pages/Register.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
-import Verify from "./pages/Verify.jsx";
 import RouteTransition from "./components/RouteTransition.jsx";
 
 export default function App() {
@@ -22,7 +21,6 @@ export default function App() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/register" element={<Register />} />
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/verify/:id" element={<Verify />} />
           <Route
             path="*"
             element={<div style={{ padding: 20 }}>Not Found</div>}
