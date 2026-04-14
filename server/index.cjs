@@ -24,11 +24,14 @@ const app = express();
 app.use(
   cors({
     origin: [/https:\/\/tourist-safety-system.*\.vercel\.app$/],
-    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 200,
   }),
 );
+app.options("*", cors());
 app.use(express.json());
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use("/", geofenceRoutes);
