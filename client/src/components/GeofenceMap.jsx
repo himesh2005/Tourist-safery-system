@@ -615,6 +615,7 @@ export default function GeofenceMap({
   const [sosSubmitting, setSosSubmitting] = useState(false);
   const [sosResult, setSosResult] = useState(null);
   const [cachedZone, setCachedZone] = useState(null);
+  const [userCardOpen, setUserCardOpen] = useState(false);
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -629,6 +630,7 @@ export default function GeofenceMap({
   const sheetDragStartRef = useRef(null);
   const sheetRef = useRef(null);
   const sheetHandleRef = useRef(null);
+  const userCardRef = useRef(null);
   const wasOfflineRef = useRef(false);
   const locationDisabledTimerRef = useRef(null);
   const lastSavedLocationAtRef = useRef(0);
@@ -1258,6 +1260,18 @@ export default function GeofenceMap({
   }, []);
 
   useEffect(() => {
+    function handlePointerDown(event) {
+      if (!userCardRef.current) return;
+      if (!userCardRef.current.contains(event.target)) {
+        setUserCardOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadCities() {
@@ -1755,27 +1769,57 @@ export default function GeofenceMap({
       </div>
 
       <div className="gm-top-right">
-        <div className="gm-user-card">
-          <div className="gm-user-avatar">{userInitial}</div>
-          <div className="gm-user-meta">
-            <strong>{effectiveUserProfile.name || "Traveler"}</strong>
-            <span>
-              Digital Tourist ID:{" "}
-              {truncateMiddle(effectiveUserProfile.blockchainId || "Pending")}
-            </span>
-            <span>KYC: {effectiveUserProfile.kyc || "Not available"}</span>
-            <span>
-              Valid Until:{" "}
-              {effectiveUserProfile.validUntil
-                ? new Date(
-                    Number(effectiveUserProfile.validUntil) * 1000,
-                  ).toLocaleDateString()
-                : "Not set"}
-            </span>
-          </div>
+        <div className="gm-user-card" ref={userCardRef}>
+          <button
+            type="button"
+            className="gm-user-avatar gm-user-avatar-btn"
+            onClick={() => setUserCardOpen((value) => !value)}
+            title="Tap to view digital ID"
+            aria-label="Show digital tourist ID card"
+            aria-expanded={userCardOpen}
+          >
+            {userInitial}
+          </button>
           <div className="gm-user-badge gm-user-badge-safe">
             Verified
           </div>
+          <AnimatePresence>
+            {userCardOpen ? (
+              <motion.div
+                className="gm-id-popover"
+                initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                transition={{ duration: 0.18 }}
+              >
+                <div className="gm-id-title">
+                  {effectiveUserProfile.name || "Traveler"}
+                </div>
+                <div className="gm-id-subtitle">Digital Tourist ID</div>
+                <div className="gm-id-row">
+                  <span>Tourist ID:</span>
+                  <strong>
+                    {effectiveUserProfile.blockchainId || "Pending"}
+                  </strong>
+                </div>
+                <div className="gm-id-row">
+                  <span>KYC:</span>
+                  <strong>{effectiveUserProfile.kyc || "Not available"}</strong>
+                </div>
+                <div className="gm-id-row">
+                  <span>Valid Until:</span>
+                  <strong>
+                    {effectiveUserProfile.validUntil
+                      ? new Date(
+                          Number(effectiveUserProfile.validUntil) * 1000,
+                        ).toLocaleDateString()
+                      : "Not set"}
+                  </strong>
+                </div>
+                <div className="gm-id-verified">Blockchain Verified</div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       </div>
 
