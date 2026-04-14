@@ -23,15 +23,13 @@ let blockchainReady = false;
 const app = express();
 app.use(
   cors({
-    origin: [/https:\/\/tourist-safety-system.*\.vercel\.app$/],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    origin: [
+      "https://tourist-safety-system-ozflt0248-abhi-099a35d4.vercel.app",
+    ],
+    methods: ["GET", "POST", "OPTIONS"],
     credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 200,
   }),
 );
-app.options("*", cors());
 app.use(express.json());
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use("/", geofenceRoutes);
@@ -1516,5 +1514,6 @@ app.get("/my-card", authMiddleware, async (req, res) => {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on LAN at ${BASE_URL}`);
+    console.log(`CORS middleware initialized. Server ready on port ${PORT}`);
   });
 })();
