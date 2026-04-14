@@ -24,7 +24,7 @@ const app = express();
 app.use(express.json());
 app.use(
   cors({
-    origin: "https://tourist-safety-system-73c4wfmu7-abhi-099a35d4.vercel.app",
+    origin: [/https:\/\/tourist-safety-system.*\.vercel\.app$/],
     credentials: true,
   }),
 );
