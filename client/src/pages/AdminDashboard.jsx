@@ -104,6 +104,15 @@ export default function AdminDashboard() {
       return;
     }
 
+    const containerChanged =
+      mapRef.current &&
+      mapContainerRef.current &&
+      mapRef.current.getContainer() !== mapContainerRef.current;
+
+    if (containerChanged) {
+      teardownMap();
+    }
+
     if (!mapRef.current && mapContainerRef.current) {
       const map = L.map(mapContainerRef.current, {
         zoomControl: true,
@@ -129,7 +138,7 @@ export default function AdminDashboard() {
     return () => {
       // keep map alive while switching tourists <-> heatmap
     };
-  }, [isMapMode]);
+  }, [isMapMode, activeNav]);
 
   useEffect(() => {
     if (!mapRef.current || !isMapMode) return;
@@ -279,7 +288,10 @@ export default function AdminDashboard() {
     heatLayer.clearLayers();
     clusterLayer.clearLayers();
 
-    const liveTourists = filteredTourists
+    const sourceTourists =
+      activeNav === "heatmap" ? tourists : filteredTourists;
+
+    const liveTourists = sourceTourists
       .map((t) => {
         const loc = getLocation(t);
         if (!loc) return null;
@@ -287,7 +299,16 @@ export default function AdminDashboard() {
       })
       .filter(Boolean);
 
-    if (liveTourists.length === 0) return;
+    if (liveTourists.length === 0) {
+      const fallbackTourist = tourists.find((t) => getLocation(t));
+      const fallbackLoc = fallbackTourist ? getLocation(fallbackTourist) : null;
+      if (fallbackLoc) {
+        map.setView([fallbackLoc.lat, fallbackLoc.lng], 11);
+      } else {
+        map.setView(DEFAULT_CENTER, 10);
+      }
+      return;
+    }
 
     if (activeNav === "tourists") {
       const bounds = [];
@@ -333,18 +354,26 @@ export default function AdminDashboard() {
         const color = riskColor(risk);
 
         L.circle([loc.lat, loc.lng], {
-          radius: 900,
+          radius: 1400,
           stroke: false,
           fillColor: color,
-          fillOpacity: 0.12,
+          fillOpacity: 0.2,
           interactive: false,
         }).addTo(heatLayer);
 
         L.circle([loc.lat, loc.lng], {
-          radius: 400,
+          radius: 700,
           stroke: false,
           fillColor: color,
-          fillOpacity: 0.18,
+          fillOpacity: 0.3,
+          interactive: false,
+        }).addTo(heatLayer);
+
+        L.circleMarker([loc.lat, loc.lng], {
+          radius: 4,
+          stroke: false,
+          fillColor: color,
+          fillOpacity: 0.95,
           interactive: false,
         }).addTo(heatLayer);
       });
@@ -400,9 +429,19 @@ export default function AdminDashboard() {
 
       const bounds = liveTourists.map(({ loc }) => [loc.lat, loc.lng]);
       if (bounds.length > 1) {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
       } else if (bounds.length === 1) {
         map.setView(bounds[0], 12);
+      } else {
+        const fallbackTourist = tourists.find((t) => getLocation(t));
+        const fallbackLoc = fallbackTourist
+          ? getLocation(fallbackTourist)
+          : null;
+        if (fallbackLoc) {
+          map.setView([fallbackLoc.lat, fallbackLoc.lng], 11);
+        } else {
+          map.setView(DEFAULT_CENTER, 10);
+        }
       }
     }
   }
@@ -662,7 +701,7 @@ export default function AdminDashboard() {
               Loading admin module...
             </div>
           ) : (
-            <div key={activeNav} style={{ display: "grid", gap: "1rem" }}>
+            <div style={{ display: "grid", gap: "1rem" }}>
               {isMapMode ? (
                 <div
                   style={{
