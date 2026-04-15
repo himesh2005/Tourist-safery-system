@@ -205,6 +205,11 @@ function loadData() {
         user.emergencyContactName =
           profile?.emergencyContactName || "Emergency Contact";
       }
+      if (typeof user.offlineSmsLifetimeSent !== "boolean") {
+        user.offlineSmsLifetimeSent = Boolean(
+          profile?.offlineSmsLifetimeSent || false,
+        );
+      }
 
       if (blockchainId && profile && typeof profile === "object") {
         let warned = false;
@@ -260,6 +265,11 @@ function loadData() {
         }
         if (!profile.tripDetails) {
           profile.tripDetails = profile.itinerary || "";
+        }
+        if (typeof profile.offlineSmsLifetimeSent !== "boolean") {
+          profile.offlineSmsLifetimeSent = Boolean(
+            user.offlineSmsLifetimeSent || false,
+          );
         }
       }
     }
@@ -376,6 +386,16 @@ async function checkAllUsersOfflineStatus() {
         (entry) => entry.blockchainId === blockchainId,
       ) || null;
 
+    const alreadySentLifetimeSms = Boolean(
+      linkedUser?.offlineSmsLifetimeSent || profile?.offlineSmsLifetimeSent,
+    );
+    if (alreadySentLifetimeSms) {
+      if (offlineSmsFlags[blockchainId]) {
+        delete offlineSmsFlags[blockchainId];
+      }
+      continue;
+    }
+
     const lastHeartbeatTs = Number(profile.lastHeartbeat.timestamp || 0);
     if (!Number.isFinite(lastHeartbeatTs) || lastHeartbeatTs <= 0) continue;
 
@@ -465,7 +485,16 @@ async function checkAllUsersOfflineStatus() {
         }
       }
 
-      // Mark notified after first attempt to avoid repeated SMS spam.
+      // Mark as lifetime-sent after first send attempt to prevent any future SMS for this user.
+      profile.offlineSmsLifetimeSent = true;
+      profiles.set(blockchainId, profile);
+      if (linkedUser?.username) {
+        linkedUser.offlineSmsLifetimeSent = true;
+        users.set(linkedUser.username, linkedUser);
+      }
+      didChange = true;
+
+      // Mark notified for the current incident too.
       activeFlags.userNotified = true;
     }
 
@@ -1057,6 +1086,7 @@ app.post("/auth/register", async (req, res) => {
       itinerary: normalizedItinerary,
       aadhaarOrPassport: normalizedAadhaarOrPassport,
       aadhaarVerified: Boolean(normalizedAadhaarOrPassport),
+      offlineSmsLifetimeSent: false,
       createdAt,
       validTill,
     };
@@ -1091,8 +1121,10 @@ app.post("/auth/register", async (req, res) => {
       id: blockchainId,
       name: normalizedName || username,
       phone: normalizedPhone || "",
+      emergencyPhone: normalizedEmergencyPhone || "",
       emergencyContactName: normalizedEmergencyContactName || "",
       emergencyContact: normalizedEmergencyPhone || "",
+      offlineSmsLifetimeSent: false,
     });
     profiles.set(blockchainId, profile);
     saveData();
