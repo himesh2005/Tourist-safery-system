@@ -11,6 +11,7 @@ export default function Auth() {
   const [msg, setMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   async function login(e) {
     e.preventDefault();
@@ -19,10 +20,13 @@ export default function Auth() {
     setMsg("Logging in...");
 
     try {
+      const endpoint = isAdmin
+        ? `${API_URL}/admin/login`
+        : `${API_URL}/auth/login`;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 60000);
 
-      const n = await fetch(`${API_URL}/auth/login`, {
+      const n = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -38,6 +42,12 @@ export default function Auth() {
       }
 
       localStorage.setItem("token", data.token);
+      if (isAdmin) {
+        localStorage.setItem("adminUser", data.username);
+        setMsg("Admin Success - Redirecting...");
+        nav("/admin-dashboard");
+        return;
+      }
       localStorage.setItem("blockchainId", data.blockchainId);
       const profileRes = await fetch(`${API_URL}/me`, {
         headers: { Authorization: `Bearer ${data.token}` },
@@ -55,7 +65,8 @@ export default function Auth() {
             blockchainId: profile.blockchainId,
             kyc: profile.kyc || profile.profile?.kyc || "",
             itinerary: profile.itinerary || profile.profile?.itinerary || "",
-            validUntil: profile.validUntil || profile.profile?.validUntil || null,
+            validUntil:
+              profile.validUntil || profile.profile?.validUntil || null,
             profile: profile.profile || null,
           }),
         );
@@ -77,9 +88,50 @@ export default function Auth() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: "easeOut" }}
       >
-        <h2 className="auth-title">Tourist Safety System</h2>
+        <div
+          className="auth-mode-tabs"
+          style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}
+        >
+          <button
+            type="button"
+            onClick={() => setIsAdmin(false)}
+            className={`tab-btn ${!isAdmin ? "active" : ""}`}
+            style={{
+              background: !isAdmin ? "rgba(25, 118, 210, 0.1)" : "transparent",
+              border: "none",
+              padding: "0.5rem 1rem",
+              borderRadius: "8px",
+              color: !isAdmin ? "#1976D2" : "#666",
+              fontWeight: "600",
+              cursor: "pointer",
+            }}
+          >
+            User Login
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAdmin(true)}
+            className={`tab-btn ${isAdmin ? "active" : ""}`}
+            style={{
+              background: isAdmin ? "rgba(25, 118, 210, 0.1)" : "transparent",
+              border: "none",
+              padding: "0.5rem 1rem",
+              borderRadius: "8px",
+              color: isAdmin ? "#1976D2" : "#666",
+              fontWeight: "600",
+              cursor: "pointer",
+            }}
+          >
+            Admin Login
+          </button>
+        </div>
+        <h2 className="auth-title">
+          {isAdmin ? "Admin Dashboard" : "Tourist Safety System"}
+        </h2>
         <p className="auth-subtitle">
-          Sign in to access your live geofence dashboard.
+          {isAdmin
+            ? "Authorized access only."
+            : "Sign in to access your live geofence dashboard."}
         </p>
 
         <div className="auth-form">
