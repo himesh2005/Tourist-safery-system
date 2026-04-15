@@ -130,6 +130,36 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
     fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
   }
 
+  function refreshInMemoryMapsFromDisk() {
+    try {
+      ensureDataFile();
+      const raw = fs.readFileSync(DATA_PATH, "utf-8");
+      const parsed = JSON.parse(raw || "{}");
+
+      const diskUsers =
+        parsed?.users && typeof parsed.users === "object" ? parsed.users : {};
+      const diskProfiles =
+        parsed?.profiles && typeof parsed.profiles === "object"
+          ? parsed.profiles
+          : {};
+
+      users.clear();
+      for (const [username, user] of Object.entries(diskUsers)) {
+        users.set(username, user);
+      }
+
+      profiles.clear();
+      for (const [blockchainId, profile] of Object.entries(diskProfiles)) {
+        profiles.set(blockchainId, profile);
+      }
+    } catch (err) {
+      console.warn(
+        "Admin map refresh from disk failed:",
+        err?.message || String(err),
+      );
+    }
+  }
+
   function isAdminTokenPayload(decoded) {
     return (
       decoded &&
@@ -186,6 +216,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
 
   // ---------- Tourists Monitoring + Digital ID Records ----------
   router.get("/tourists", adminAuth, (req, res) => {
+    refreshInMemoryMapsFromDisk();
     const q = safeString(req.query?.q).toLowerCase();
 
     const tourists = buildLegacySafeUserRows()
@@ -286,6 +317,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
 
   // Optional alias for Digital ID panel consumers
   router.get("/records", adminAuth, (req, res) => {
+    refreshInMemoryMapsFromDisk();
     const q = safeString(req.query?.q).toLowerCase();
     const records = buildLegacySafeUserRows()
       .map((entry) => {
@@ -335,6 +367,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
 
   // ---------- Alerts / Zone Breach Logs ----------
   router.get("/alerts", adminAuth, (req, res) => {
+    refreshInMemoryMapsFromDisk();
     const q = safeString(req.query?.q).toLowerCase();
     const risk = safeString(req.query?.risk).toLowerCase();
 
@@ -367,6 +400,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
 
   // ---------- E-FIR ----------
   router.post("/fir", adminAuth, (req, res) => {
+    refreshInMemoryMapsFromDisk();
     const touristId = safeString(req.body?.touristId);
     const touristName = safeString(req.body?.touristName);
     const lastSeenLocation = safeString(req.body?.lastSeenLocation);
@@ -413,6 +447,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
   });
 
   router.get("/firs", adminAuth, (req, res) => {
+    refreshInMemoryMapsFromDisk();
     const q = safeString(req.query?.q).toLowerCase();
     const data = readDataStore();
     const firs = (data.firs || [])

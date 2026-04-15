@@ -159,10 +159,78 @@ const DATA_PATH = (
   path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH || __dirname, "data.json")
 ).trim();
 
+const FALLBACK_DATA_PATH = path.join(__dirname, "data.json");
+const PERSISTENT_PATHS = Array.from(
+  new Set(
+    [DATA_PATH, FALLBACK_DATA_PATH]
+      .map((p) => String(p || "").trim())
+      .filter(Boolean),
+  ),
+);
+
+function ensurePersistentFile(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify(
+        { users: {}, profiles: {}, alerts: [], firs: [] },
+        null,
+        2,
+      ),
+    );
+  }
+}
+
+function readJsonSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.users || typeof parsed.users !== "object") parsed.users = {};
+    if (!parsed.profiles || typeof parsed.profiles !== "object")
+      parsed.profiles = {};
+    if (!Array.isArray(parsed.alerts)) parsed.alerts = [];
+    if (!Array.isArray(parsed.firs)) parsed.firs = [];
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function scoreSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return -1;
+  const usersCount = Object.keys(snapshot.users || {}).length;
+  const profilesCount = Object.keys(snapshot.profiles || {}).length;
+  const alertsCount = Array.isArray(snapshot.alerts)
+    ? snapshot.alerts.length
+    : 0;
+  const firCount = Array.isArray(snapshot.firs) ? snapshot.firs.length : 0;
+  return (
+    usersCount * 10_000 + profilesCount * 1_000 + alertsCount * 10 + firCount
+  );
+}
+
+function readPersistentSnapshot() {
+  let best = { users: {}, profiles: {}, alerts: [], firs: [] };
+  let bestScore = -1;
+
+  for (const filePath of PERSISTENT_PATHS) {
+    const snapshot = readJsonSafe(filePath);
+    const score = scoreSnapshot(snapshot);
+    if (score > bestScore) {
+      best = snapshot;
+      bestScore = score;
+    }
+  }
+
+  return best || { users: {}, profiles: {}, alerts: [], firs: [] };
+}
+
 function loadData() {
   try {
-    if (!fs.existsSync(DATA_PATH)) return { users: {}, profiles: {} };
-    const data = JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
+    const data = readPersistentSnapshot();
 
     if (!data.users || typeof data.users !== "object") data.users = {};
     if (!data.profiles || typeof data.profiles !== "object") data.profiles = {};
@@ -298,32 +366,47 @@ function cleanCity(city) {
 const loaded = loadData();
 const users = new Map(Object.entries(loaded.users || {})); // username -> { username, passHash, blockchainId }
 const profiles = new Map(Object.entries(loaded.profiles || {})); // blockchainId -> profile
+
+function refreshInMemoryFromDisk() {
+  const latest = loadData();
+  const latestUsers = Object.entries(latest.users || {});
+  const latestProfiles = Object.entries(latest.profiles || {});
+
+  users.clear();
+  for (const [k, v] of latestUsers) users.set(k, v);
+
+  profiles.clear();
+  for (const [k, v] of latestProfiles) profiles.set(k, v);
+}
+
 app.use("/admin", adminRoutes(users, profiles, saveData, DATA_PATH));
 console.log("Using DATA_PATH:", DATA_PATH);
+console.log("Persistent mirrors:", PERSISTENT_PATHS.join(", "));
 console.log("Loaded users:", users.size, "Loaded profiles:", profiles.size);
 
 function saveData() {
-  let existing = {};
-  try {
-    if (fs.existsSync(DATA_PATH)) {
-      existing = JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
-    }
-  } catch (e) {}
-
   const usersObj = Object.fromEntries(users.entries());
   const profilesObj = Object.fromEntries(profiles.entries());
-  const dataDir = path.dirname(DATA_PATH);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
+
+  let canonicalExisting = readPersistentSnapshot();
+  if (!canonicalExisting || typeof canonicalExisting !== "object") {
+    canonicalExisting = { users: {}, profiles: {}, alerts: [], firs: [] };
   }
-  fs.writeFileSync(
-    DATA_PATH,
-    JSON.stringify(
-      { ...existing, users: usersObj, profiles: profilesObj },
-      null,
-      2,
-    ),
-  );
+
+  const payload = {
+    ...canonicalExisting,
+    users: usersObj,
+    profiles: profilesObj,
+  };
+
+  for (const filePath of PERSISTENT_PATHS) {
+    try {
+      ensurePersistentFile(filePath);
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+    } catch (e) {
+      console.warn(`Persistent write failed for ${filePath}:`, e?.message || e);
+    }
+  }
 }
 
 const USER_OFFLINE_SMS_MS = 30 * 1000;
@@ -1154,7 +1237,11 @@ app.post("/auth/login", async (req, res) => {
       return res.status(400).json({ error: "username and password required" });
     }
 
-    const u = users.get(username);
+    let u = users.get(username);
+    if (!u) {
+      refreshInMemoryFromDisk();
+      u = users.get(username);
+    }
     if (!u) return res.status(401).json({ error: "Invalid credentials" });
 
     const passHash = String(u.passHash || u.passwordHash || "").trim();
