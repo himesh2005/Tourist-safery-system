@@ -787,16 +787,21 @@ app.post("/auth/register", async (req, res) => {
     const normalizedName = String(
       payload.name || payload.username || "",
     ).trim();
-    const normalizedMobile = String(
-      payload.mobile ||
+    const normalizedPhone = String(
+      payload.phone || payload.mobile || "",
+    ).trim();
+    const normalizedEmergencyPhone = String(
+      payload.emergencyContactPhone ||
         payload.emergencyContact ||
         payload.emergencyContacts ||
+        payload.mobile ||
         "",
     ).trim();
-    const normalizedEmergencyContacts = String(
-      payload.emergencyContacts ||
-        payload.emergencyContact ||
-        payload.mobile ||
+    const normalizedEmergencyContactName = String(
+      payload.emergencyContactName ||
+        payload.emergencyName ||
+        payload.name ||
+        payload.username ||
         "",
     ).trim();
     const normalizedBloodGroup = String(payload.bloodGroup || "NA").trim();
@@ -808,6 +813,7 @@ app.post("/auth/register", async (req, res) => {
       payload.aadhaarOrPassport || "",
     ).trim();
     const validUntilUnix = Number(payload.validUntil);
+    const indianPhoneRegex = /^\d{10}$/;
 
     if (!username || !password)
       return res.status(400).json({ error: "username and password required" });
@@ -823,12 +829,29 @@ app.post("/auth/register", async (req, res) => {
       payload.address,
     );
 
+    if (!normalizedName) {
+      return res.status(400).json({ error: "Missing profile fields" });
+    }
+    if (!normalizedPhone || !indianPhoneRegex.test(normalizedPhone)) {
+      return res.status(400).json({
+        error: "phone must be a valid 10-digit numeric value",
+      });
+    }
     if (
-      !normalizedName ||
-      !normalizedEmergencyContacts ||
-      (isLegacyPayload &&
-        (!normalizedMobile || !normalizedBloodGroup || !normalizedAddress))
+      !normalizedEmergencyPhone ||
+      !indianPhoneRegex.test(normalizedEmergencyPhone)
     ) {
+      return res.status(400).json({
+        error:
+          "emergencyContactPhone/emergencyContact must be a valid 10-digit numeric value",
+      });
+    }
+    if (normalizedPhone === normalizedEmergencyPhone) {
+      return res.status(400).json({
+        error: "phone and emergency contact phone must be different",
+      });
+    }
+    if (isLegacyPayload && (!normalizedBloodGroup || !normalizedAddress)) {
       return res.status(400).json({ error: "Missing profile fields" });
     }
 
@@ -850,10 +873,13 @@ app.post("/auth/register", async (req, res) => {
       blockchainId,
       username,
       name: normalizedName,
-      mobile: normalizedMobile || normalizedEmergencyContacts,
+      phone: normalizedPhone,
+      mobile: normalizedPhone,
       bloodGroup: normalizedBloodGroup || "NA",
       allergies: String(payload.allergies || ""),
-      emergencyContacts: normalizedEmergencyContacts,
+      emergencyContactName: normalizedEmergencyContactName,
+      emergencyContactPhone: normalizedEmergencyPhone,
+      emergencyContacts: normalizedEmergencyPhone,
       address: normalizedAddress || normalizedItinerary || "N/A",
       itinerary: normalizedItinerary,
       aadhaarOrPassport: normalizedAadhaarOrPassport,
@@ -891,8 +917,9 @@ app.post("/auth/register", async (req, res) => {
       blockchainId,
       id: blockchainId,
       name: normalizedName || username,
-      phone: normalizedMobile || normalizedEmergencyContacts || "",
-      emergencyContact: normalizedEmergencyContacts || normalizedMobile || "",
+      phone: normalizedPhone || "",
+      emergencyContactName: normalizedEmergencyContactName || "",
+      emergencyContact: normalizedEmergencyPhone || "",
     });
     profiles.set(blockchainId, profile);
     saveData();
@@ -904,7 +931,10 @@ app.post("/auth/register", async (req, res) => {
       validUntil: Math.floor(new Date(validTill).getTime() / 1000),
       kyc: normalizedAadhaarOrPassport,
       itinerary: normalizedItinerary,
-      emergencyContact: normalizedEmergencyContacts,
+      phone: normalizedPhone,
+      emergencyContactName: normalizedEmergencyContactName,
+      emergencyContact: normalizedEmergencyPhone,
+      emergencyPhone: normalizedEmergencyPhone,
       status: "success",
     });
   } catch (err) {
@@ -948,8 +978,20 @@ app.post("/auth/login", async (req, res) => {
         ? {
             blockchainId: profile.blockchainId,
             name: profile.name,
-            mobile: profile.mobile || "",
-            emergencyContacts: profile.emergencyContacts || "",
+            phone: profile.phone || profile.mobile || u.phone || "",
+            mobile: profile.mobile || profile.phone || u.phone || "",
+            emergencyPhone:
+              profile.emergencyContactPhone ||
+              profile.emergencyContacts ||
+              u.emergencyContact ||
+              "",
+            emergencyContacts:
+              profile.emergencyContacts ||
+              profile.emergencyContactPhone ||
+              u.emergencyContact ||
+              "",
+            emergencyContactName:
+              profile.emergencyContactName || u.emergencyContactName || "",
             address: profile.address || "",
           }
         : null,
@@ -968,17 +1010,39 @@ app.get("/me", authMiddleware, (req, res) => {
     id: u.id || u.blockchainId,
     username,
     name: profile?.name || u.name || username,
-    phone: u.phone || profile?.mobile || profile?.emergencyContacts || "",
+    phone: u.phone || profile?.phone || profile?.mobile || "",
+    emergencyPhone:
+      u.emergencyContact ||
+      profile?.emergencyContactPhone ||
+      profile?.emergencyContacts ||
+      "",
     emergencyContact:
-      u.emergencyContact || profile?.emergencyContacts || profile?.mobile || "",
+      u.emergencyContact ||
+      profile?.emergencyContactPhone ||
+      profile?.emergencyContacts ||
+      "",
+    emergencyContactName:
+      u.emergencyContactName || profile?.emergencyContactName || "",
     blockchainId: u.blockchainId,
     bloodGroup: profile?.bloodGroup || "",
     profile: profile
       ? {
           blockchainId: profile.blockchainId,
           name: profile.name,
-          mobile: profile.mobile || "",
-          emergencyContacts: profile.emergencyContacts || "",
+          phone: profile.phone || profile.mobile || u.phone || "",
+          mobile: profile.mobile || profile.phone || u.phone || "",
+          emergencyContactPhone:
+            profile.emergencyContactPhone ||
+            profile.emergencyContacts ||
+            u.emergencyContact ||
+            "",
+          emergencyContacts:
+            profile.emergencyContacts ||
+            profile.emergencyContactPhone ||
+            u.emergencyContact ||
+            "",
+          emergencyContactName:
+            profile.emergencyContactName || u.emergencyContactName || "",
           address: profile.address || "",
           bloodGroup: profile.bloodGroup || "",
         }

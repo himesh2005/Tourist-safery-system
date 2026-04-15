@@ -26,6 +26,7 @@ export default function Register() {
     password: "",
     aadhaarOrPassport: "",
     itinerary: "",
+    phone: "",
     emergencyContact: "",
     validUntilDate: "",
   });
@@ -55,8 +56,19 @@ export default function Register() {
     if (!form.itinerary.trim()) {
       next.itinerary = "Trip itinerary is required.";
     }
+    if (!mobileRegex.test(form.phone.trim())) {
+      next.phone = "Your mobile number must be a 10-digit number.";
+    }
     if (!mobileRegex.test(form.emergencyContact.trim())) {
       next.emergencyContact = "Emergency contact must be a 10-digit number.";
+    }
+    if (
+      mobileRegex.test(form.phone.trim()) &&
+      mobileRegex.test(form.emergencyContact.trim()) &&
+      form.phone.trim() === form.emergencyContact.trim()
+    ) {
+      next.emergencyContact =
+        "Emergency contact number must be different from your mobile number.";
     }
 
     const unix = toUnixTimestamp(form.validUntilDate);
@@ -96,6 +108,7 @@ export default function Register() {
           password: form.password,
           aadhaarOrPassport: form.aadhaarOrPassport.trim(),
           itinerary: form.itinerary.trim(),
+          phone: form.phone.trim(),
           emergencyContact: form.emergencyContact.trim(),
           validUntil,
         }),
@@ -115,6 +128,7 @@ export default function Register() {
         blockchainId: data.blockchainId,
         kyc: data.kyc,
         itinerary: data.itinerary,
+        phone: data.phone || form.phone.trim(),
         emergencyContact: data.emergencyContact,
         validUntil: data.validUntil,
       });
@@ -190,6 +204,16 @@ export default function Register() {
           />
 
           <Field
+            label="Your Mobile Number"
+            value={form.phone}
+            onChange={(v) =>
+              setField("phone", v.replace(/[^\d]/g, "").slice(0, 10))
+            }
+            error={errors.phone}
+            helper="10 digits only."
+          />
+
+          <Field
             label="Emergency Contact"
             value={form.emergencyContact}
             onChange={(v) =>
@@ -248,6 +272,9 @@ export default function Register() {
             </p>
             <p>
               <strong>Trip itinerary:</strong> {issuedId.itinerary}
+            </p>
+            <p>
+              <strong>Your mobile number:</strong> {issuedId.phone}
             </p>
             <p>
               <strong>Emergency contact:</strong> {issuedId.emergencyContact}
