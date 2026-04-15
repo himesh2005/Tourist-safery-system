@@ -779,43 +779,85 @@ app.post("/api/check-username", (req, res) => {
 
 app.post("/auth/register", async (req, res) => {
   try {
-    const {
-      username,
-      password,
-      name,
-      mobile,
-      bloodGroup,
-      allergies,
-      emergencyContacts,
-      address,
-    } = req.body;
+    const payload = req.body || {};
+    const username = String(payload.username || "").trim();
+    const password = String(payload.password || "");
+
+    // Accept both legacy payload and new registration form payload
+    const normalizedName = String(
+      payload.name || payload.username || "",
+    ).trim();
+    const normalizedMobile = String(
+      payload.mobile ||
+        payload.emergencyContact ||
+        payload.emergencyContacts ||
+        "",
+    ).trim();
+    const normalizedEmergencyContacts = String(
+      payload.emergencyContacts ||
+        payload.emergencyContact ||
+        payload.mobile ||
+        "",
+    ).trim();
+    const normalizedBloodGroup = String(payload.bloodGroup || "NA").trim();
+    const normalizedItinerary = String(payload.itinerary || "").trim();
+    const normalizedAddress = String(
+      payload.address || payload.itinerary || "",
+    ).trim();
+    const normalizedAadhaarOrPassport = String(
+      payload.aadhaarOrPassport || "",
+    ).trim();
+    const validUntilUnix = Number(payload.validUntil);
 
     if (!username || !password)
       return res.status(400).json({ error: "username and password required" });
     if (users.has(username))
       return res.status(409).json({ error: "username already exists" });
 
-    if (!name || !mobile || !bloodGroup || !emergencyContacts || !address) {
+    // Legacy registration requires complete profile fields.
+    const isLegacyPayload = Boolean(
+      payload.name ||
+      payload.mobile ||
+      payload.bloodGroup ||
+      payload.emergencyContacts ||
+      payload.address,
+    );
+
+    if (
+      !normalizedName ||
+      !normalizedEmergencyContacts ||
+      (isLegacyPayload &&
+        (!normalizedMobile || !normalizedBloodGroup || !normalizedAddress))
+    ) {
       return res.status(400).json({ error: "Missing profile fields" });
     }
 
     const passHash = await bcryptHash(password, 10);
     const blockchainId = "TID-" + crypto.randomBytes(6).toString("hex");
     const createdAt = new Date().toISOString();
-    const validTill = new Date(
+
+    let validTill = new Date(
       Date.now() + 7 * 24 * 60 * 60 * 1000,
     ).toISOString();
+    if (
+      Number.isFinite(validUntilUnix) &&
+      validUntilUnix > Math.floor(Date.now() / 1000)
+    ) {
+      validTill = new Date(validUntilUnix * 1000).toISOString();
+    }
 
     const profile = {
       blockchainId,
       username,
-      name,
-      mobile,
-      bloodGroup,
-      allergies: allergies || "",
-      emergencyContacts,
-      address,
-      aadhaarVerified: false,
+      name: normalizedName,
+      mobile: normalizedMobile || normalizedEmergencyContacts,
+      bloodGroup: normalizedBloodGroup || "NA",
+      allergies: String(payload.allergies || ""),
+      emergencyContacts: normalizedEmergencyContacts,
+      address: normalizedAddress || normalizedItinerary || "N/A",
+      itinerary: normalizedItinerary,
+      aadhaarOrPassport: normalizedAadhaarOrPassport,
+      aadhaarVerified: Boolean(normalizedAadhaarOrPassport),
       createdAt,
       validTill,
     };
@@ -848,9 +890,9 @@ app.post("/auth/register", async (req, res) => {
       passHash,
       blockchainId,
       id: blockchainId,
-      name,
-      phone: mobile || emergencyContacts || "",
-      emergencyContact: emergencyContacts || mobile || "",
+      name: normalizedName || username,
+      phone: normalizedMobile || normalizedEmergencyContacts || "",
+      emergencyContact: normalizedEmergencyContacts || normalizedMobile || "",
     });
     profiles.set(blockchainId, profile);
     saveData();
@@ -859,6 +901,10 @@ app.post("/auth/register", async (req, res) => {
       blockchainId,
       createdAt,
       validTill,
+      validUntil: Math.floor(new Date(validTill).getTime() / 1000),
+      kyc: normalizedAadhaarOrPassport,
+      itinerary: normalizedItinerary,
+      emergencyContact: normalizedEmergencyContacts,
       status: "success",
     });
   } catch (err) {
