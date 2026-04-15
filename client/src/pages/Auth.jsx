@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+
 import { FiEye, FiEyeOff } from "react-icons/fi";
 import { API_URL } from "../config/env.js";
 
@@ -81,13 +81,7 @@ export default function Auth() {
 
   return (
     <div className="auth-screen page-container">
-      <motion.form
-        onSubmit={login}
-        className="glass-card auth-card"
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-      >
+      <form onSubmit={login} className="glass-card auth-card">
         <div
           className="auth-mode-tabs"
           style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}
@@ -171,29 +165,14 @@ export default function Auth() {
         </div>
 
         <div className="auth-actions">
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            type="submit"
-            className="pill-btn"
-            disabled={isSubmitting}
-          >
+          <button type="submit" className="pill-btn" disabled={isSubmitting}>
             {isSubmitting ? "Signing in..." : "Login"}
-          </motion.button>
+          </button>
           <Link to="/register">Create account</Link>
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.p
-            key={msg}
-            className="auth-msg"
-            initial={{ opacity: 0, y: -2 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 2 }}
-          >
-            {msg}
-          </motion.p>
-        </AnimatePresence>
-      </motion.form>
+        <p className="auth-msg">{msg}</p>
+      </form>
     </div>
   );
 }

@@ -1,740 +1,930 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
-  FiUsers,
-  FiMap,
   FiAlertTriangle,
+  FiClock,
+  FiDatabase,
   FiFileText,
+  FiFilter,
+  FiLogOut,
+  FiMap,
+  FiMenu,
   FiRefreshCw,
   FiSearch,
-  FiLogOut,
+  FiShield,
+  FiUsers,
+  FiX,
 } from "react-icons/fi";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { API_URL } from "../config/env.js";
 
-// Leaflet heatmap plugin might need careful inclusion.
-// For simplicity, if leaflet.heatmap is not available via npm, we can use a CDN or just standard circles.
-// But the requirement asks for "Heat Map & Cluster View".
+const REFRESH_MS = 10_000;
+const DEFAULT_CENTER = [20.1849, 80.003];
+
+const NAV_ITEMS = [
+  { key: "tourists", label: "Tourists", icon: FiUsers },
+  { key: "heatmap", label: "Heatmap", icon: FiMap },
+  { key: "records", label: "Digital IDs", icon: FiDatabase },
+  { key: "alerts", label: "Alerts", icon: FiAlertTriangle },
+  { key: "fir", label: "E-FIR", icon: FiFileText },
+];
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState("tourists");
+  const nav = useNavigate();
+
+  const [activeNav, setActiveNav] = useState("tourists");
   const [tourists, setTourists] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [firs, setFirs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const nav = useNavigate();
+  const [zones, setZones] = useState([]);
 
-  const mapRef = useRef(null);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isTablet, setIsTablet] = useState(false);
+
   const mapContainerRef = useRef(null);
-  const touristLayerRef = useRef(L.layerGroup());
-  const heatLayerRef = useRef(null);
-  const zonesLayerRef = useRef(L.layerGroup());
+  const mapRef = useRef(null);
+  const mapLayersRef = useRef({
+    touristsLayer: null,
+    heatLayer: null,
+    clusterLayer: null,
+    zonesLayer: null,
+  });
+
+  const isMapMode = activeNav === "tourists" || activeNav === "heatmap";
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1024px)");
+
+    const syncLayout = () => {
+      const tabletMode = media.matches;
+      setIsTablet(tabletMode);
+      setSidebarOpen(!tabletMode);
+    };
+
+    syncLayout();
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", syncLayout);
+      return () => media.removeEventListener("change", syncLayout);
+    }
+
+    media.addListener(syncLayout);
+    return () => media.removeListener(syncLayout);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) {
-      nav("/auth");
+    const adminUser = localStorage.getItem("adminUser");
+
+    if (!token || !adminUser) {
+      nav("/auth", { replace: true });
       return;
     }
-    fetchData();
-    const interval = setInterval(fetchData, 10000); // Auto-refresh every 10s
+
+    fetchAll({ silent: false });
+
+    const interval = setInterval(() => {
+      fetchAll({ silent: true });
+    }, REFRESH_MS);
+
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchData = async () => {
+  useEffect(() => {
+    if (!isMapMode) {
+      teardownMap();
+      return;
+    }
+
+    if (!mapRef.current && mapContainerRef.current) {
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+        minZoom: 4,
+      }).setView(DEFAULT_CENTER, 10);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+      }).addTo(map);
+
+      mapLayersRef.current.touristsLayer = L.layerGroup().addTo(map);
+      mapLayersRef.current.heatLayer = L.layerGroup().addTo(map);
+      mapLayersRef.current.clusterLayer = L.layerGroup().addTo(map);
+      mapLayersRef.current.zonesLayer = L.layerGroup().addTo(map);
+
+      mapRef.current = map;
+    }
+
+    if (mapRef.current) {
+      setTimeout(() => mapRef.current?.invalidateSize(), 120);
+    }
+
+    return () => {
+      // keep map alive while switching tourists <-> heatmap
+    };
+  }, [isMapMode]);
+
+  useEffect(() => {
+    if (!mapRef.current || !isMapMode) return;
+    drawZones();
+    drawTouristOverlays();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourists, zones, activeNav, query]);
+
+  const filteredTourists = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tourists;
+
+    return tourists.filter((t) => {
+      const name = String(t.name || "").toLowerCase();
+      const id = String(t.blockchainId || "").toLowerCase();
+      const username = String(t.username || "").toLowerCase();
+      return name.includes(q) || id.includes(q) || username.includes(q);
+    });
+  }, [tourists, query]);
+
+  const filteredAlerts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = [...alerts].sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp),
+    );
+
+    if (!q) return list;
+    return list.filter((a) => {
+      const name = String(a.userName || "").toLowerCase();
+      const id = String(a.blockchainId || "").toLowerCase();
+      const zone = String(a.zoneName || "").toLowerCase();
+      return name.includes(q) || id.includes(q) || zone.includes(q);
+    });
+  }, [alerts, query]);
+
+  const records = useMemo(() => {
+    return filteredTourists.map((t) => {
+      const r = t.digitalIdRecord || {};
+      return {
+        name: t.name || t.username || "Unknown",
+        blockchainId: t.blockchainId || r.blockchainId || "N/A",
+        itinerary: r.itinerary || "Not provided",
+        emergencyContacts: r.emergencyContacts || "Not provided",
+        validFrom: r.validFrom || t.loginTimestamp || null,
+        validTill: r.validTill || null,
+      };
+    });
+  }, [filteredTourists]);
+
+  async function fetchAll({ silent }) {
     const token = localStorage.getItem("token");
+    if (!token) return;
+
+    if (!silent) setLoading(true);
+    setBusy(true);
+
     try {
+      const headers = { Authorization: `Bearer ${token}` };
+
       const [tRes, aRes, fRes, zRes] = await Promise.all([
-        fetch(`${API_URL}/admin/tourists`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/admin/alerts`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/admin/firs`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        fetch(`${API_URL}/admin/tourists`, { headers }),
+        fetch(`${API_URL}/admin/alerts`, { headers }),
+        fetch(`${API_URL}/admin/firs`, { headers }),
         fetch(`${API_URL}/api/zones?city=gadchiroli`),
       ]);
 
-      if (tRes.ok) setTourists(await tRes.json());
-      if (aRes.ok) setAlerts(await aRes.json());
-      if (fRes.ok) setFirs(await fRes.json());
-      if (zRes.ok) {
-        const zonesData = await zRes.json();
-        renderZones(zonesData);
+      if (tRes.status === 401 || tRes.status === 403) {
+        handleLogout();
+        return;
       }
-      setLoading(false);
-    } catch (err) {
-      console.error("Failed to fetch admin data", err);
-    }
-  };
 
-  const renderZones = (zones) => {
-    if (!mapRef.current) return;
-    zonesLayerRef.current.clearLayers();
+      const [touristsData, alertsData, firsData, zonesData] = await Promise.all(
+        [
+          tRes.ok ? tRes.json() : [],
+          aRes.ok ? aRes.json() : [],
+          fRes.ok ? fRes.json() : [],
+          zRes.ok ? zRes.json() : [],
+        ],
+      );
+
+      setTourists(Array.isArray(touristsData) ? touristsData : []);
+      setAlerts(Array.isArray(alertsData) ? alertsData : []);
+      setFirs(Array.isArray(firsData) ? firsData : []);
+      setZones(Array.isArray(zonesData) ? zonesData : []);
+      setLastUpdated(Date.now());
+      setMessage("");
+    } catch {
+      setMessage("Unable to fetch admin data. Retrying automatically.");
+    } finally {
+      setBusy(false);
+      setLoading(false);
+    }
+  }
+
+  function teardownMap() {
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+      mapLayersRef.current = {
+        touristsLayer: null,
+        heatLayer: null,
+        clusterLayer: null,
+        zonesLayer: null,
+      };
+    }
+  }
+
+  function drawZones() {
+    const zonesLayer = mapLayersRef.current.zonesLayer;
+    if (!zonesLayer) return;
+
+    zonesLayer.clearLayers();
+
     zones.forEach((zone) => {
-      const color =
-        zone.riskLevel === "danger"
-          ? "#dc2626"
-          : zone.riskLevel === "moderate"
-            ? "#f97316"
-            : "#16a34a";
+      if (!Array.isArray(zone.coordinates) || zone.coordinates.length < 3)
+        return;
+      const risk = normalizeRisk(zone.riskLevel);
+      const color = riskColor(risk);
+
       L.polygon(zone.coordinates, {
         color,
+        weight: 1.5,
         fillColor: color,
-        fillOpacity: 0.2,
-        weight: 1,
-      }).addTo(zonesLayerRef.current);
+        fillOpacity: activeNav === "heatmap" ? 0.24 : 0.16,
+      })
+        .bindPopup(
+          `
+          <div style="min-width:200px;">
+            <strong>${zone.name || "Unknown Zone"}</strong><br/>
+            Risk: <span style="text-transform:uppercase;font-weight:700;color:${color};">${risk}</span>
+          </div>
+        `,
+        )
+        .addTo(zonesLayer);
     });
-  };
+  }
 
-  useEffect(() => {
-    if (
-      (activeTab === "heatmap" || activeTab === "tourists") &&
-      !mapRef.current &&
-      mapContainerRef.current
-    ) {
-      mapRef.current = L.map(mapContainerRef.current).setView(
-        [20.1849, 80.003],
-        10,
-      );
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(
-        mapRef.current,
-      );
-      zonesLayerRef.current.addTo(mapRef.current);
-      touristLayerRef.current.addTo(mapRef.current);
-    }
+  function drawTouristOverlays() {
+    const touristsLayer = mapLayersRef.current.touristsLayer;
+    const heatLayer = mapLayersRef.current.heatLayer;
+    const clusterLayer = mapLayersRef.current.clusterLayer;
+    const map = mapRef.current;
 
-    // Resize map when tab changes
-    if (mapRef.current) {
-      setTimeout(() => mapRef.current.invalidateSize(), 100);
-    }
-  }, [activeTab]);
+    if (!touristsLayer || !heatLayer || !clusterLayer || !map) return;
 
-  useEffect(() => {
-    if (!mapRef.current) return;
+    touristsLayer.clearLayers();
+    heatLayer.clearLayers();
+    clusterLayer.clearLayers();
 
-    touristLayerRef.current.clearLayers();
+    const liveTourists = filteredTourists
+      .map((t) => {
+        const loc = getLocation(t);
+        if (!loc) return null;
+        return { tourist: t, loc };
+      })
+      .filter(Boolean);
 
-    tourists.forEach((t) => {
-      const loc = t.lastHeartbeat || t.lastKnownLocation;
-      if (loc && loc.lat && loc.lng) {
-        if (activeTab === "tourists") {
-          const icon = L.divIcon({
-            className: "tourist-marker",
-            html: `<div style="background: ${loc.riskLevel === "danger" ? "#dc2626" : loc.riskLevel === "moderate" ? "#f97316" : "#16a34a"}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.3);"></div>`,
-            iconSize: [12, 12],
-          });
+    if (liveTourists.length === 0) return;
 
-          L.marker([loc.lat, loc.lng], { icon })
-            .bindPopup(
-              `<strong>${t.name}</strong><br>Status: ${loc.riskLevel || "Safe"}<br>Zone: ${loc.zoneName || "Unknown"}`,
-            )
-            .addTo(touristLayerRef.current);
-        } else if (activeTab === "heatmap") {
-          // Heatmap fallback using overlapping circles
-          L.circle([loc.lat, loc.lng], {
-            radius: 2000,
-            fillColor: "#ff4444",
-            fillOpacity: 0.15,
-            stroke: false,
-            interactive: false,
-          }).addTo(touristLayerRef.current);
+    if (activeNav === "tourists") {
+      const bounds = [];
 
-          L.circle([loc.lat, loc.lng], {
-            radius: 800,
-            fillColor: "#ff0000",
-            fillOpacity: 0.25,
-            stroke: false,
-            interactive: false,
-          }).addTo(touristLayerRef.current);
-        }
+      liveTourists.forEach(({ tourist, loc }) => {
+        const risk = normalizeRisk(loc.riskLevel || tourist.riskZoneStatus);
+        const color = riskColor(risk);
+        bounds.push([loc.lat, loc.lng]);
+
+        const marker = L.circleMarker([loc.lat, loc.lng], {
+          radius: 8,
+          color: "#fff",
+          weight: 2,
+          fillColor: color,
+          fillOpacity: 0.95,
+        });
+
+        marker.bindPopup(`
+          <div style="min-width:220px;">
+            <strong>${tourist.name || tourist.username || "Tourist"}</strong><br/>
+            ID: ${tourist.blockchainId || "N/A"}<br/>
+            Zone: ${loc.zoneName || tourist.zoneName || "Unknown"}<br/>
+            Risk: <span style="font-weight:700;text-transform:uppercase;color:${color};">${risk}</span><br/>
+            Location: ${fixed(loc.lat)}, ${fixed(loc.lng)}<br/>
+            Time: ${formatDateTime(loc.timestamp)}
+          </div>
+        `);
+        marker.addTo(touristsLayer);
+      });
+
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      } else if (bounds.length === 1) {
+        map.setView(bounds[0], 13);
       }
-    });
-  }, [tourists, activeTab]);
-  const filteredTourists = tourists.filter(
-    (t) =>
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.blockchainId.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+    }
 
-  const logout = () => {
+    if (activeNav === "heatmap") {
+      const grouped = buildClusters(liveTourists);
+
+      liveTourists.forEach(({ loc }) => {
+        const risk = normalizeRisk(loc.riskLevel);
+        const color = riskColor(risk);
+
+        L.circle([loc.lat, loc.lng], {
+          radius: 900,
+          stroke: false,
+          fillColor: color,
+          fillOpacity: 0.12,
+          interactive: false,
+        }).addTo(heatLayer);
+
+        L.circle([loc.lat, loc.lng], {
+          radius: 400,
+          stroke: false,
+          fillColor: color,
+          fillOpacity: 0.18,
+          interactive: false,
+        }).addTo(heatLayer);
+      });
+
+      grouped.forEach((cluster) => {
+        const avgRisk = cluster.avgRisk;
+        const color =
+          avgRisk >= 1.6 ? "#dc2626" : avgRisk >= 0.8 ? "#f97316" : "#16a34a";
+        const radius = Math.min(36, 10 + cluster.count * 2);
+
+        L.circleMarker([cluster.lat, cluster.lng], {
+          radius,
+          weight: 2,
+          color: "#ffffff",
+          fillColor: color,
+          fillOpacity: 0.88,
+        })
+          .bindPopup(
+            `
+            <div>
+              <strong>Cluster Zone</strong><br/>
+              Tourists: ${cluster.count}<br/>
+              Approx center: ${fixed(cluster.lat)}, ${fixed(cluster.lng)}
+            </div>
+          `,
+          )
+          .addTo(clusterLayer);
+
+        const label = L.divIcon({
+          className: "cluster-count-icon",
+          html: `<div style="
+              background:#0f172a;
+              color:#fff;
+              border:1px solid rgba(255,255,255,0.55);
+              border-radius:999px;
+              min-width:28px;
+              height:28px;
+              display:grid;
+              place-items:center;
+              font-size:12px;
+              font-weight:700;
+              box-shadow:0 6px 20px rgba(15,23,42,0.35);
+              padding:0 8px;
+            ">${cluster.count}</div>`,
+          iconSize: [28, 28],
+        });
+
+        L.marker([cluster.lat, cluster.lng], {
+          icon: label,
+          interactive: false,
+        }).addTo(clusterLayer);
+      });
+
+      const bounds = liveTourists.map(({ loc }) => [loc.lat, loc.lng]);
+      if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
+      } else if (bounds.length === 1) {
+        map.setView(bounds[0], 12);
+      }
+    }
+  }
+
+  function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("adminUser");
-    nav("/auth");
-  };
+    nav("/auth", { replace: true });
+  }
 
   return (
     <div
-      className="admin-dashboard-container"
       style={{
+        minHeight: "100vh",
         display: "flex",
-        height: "100vh",
-        background: "#f8fafc",
-        color: "#1e293b",
+        color: "#e6f6ff",
+        position: "relative",
       }}
     >
-      {/* Sidebar */}
-      <div
-        className="admin-sidebar"
+      <AnimatePresence>
+        {isTablet && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(2, 6, 23, 0.56)",
+              zIndex: 32,
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <aside
+        className="glass-card"
         style={{
-          width: "260px",
-          background: "#ffffff",
-          borderRight: "1px solid #e2e8f0",
+          width: 260,
+          maxWidth: "82vw",
+          padding: "1rem",
+          borderRadius: 0,
+          borderTop: "none",
+          borderBottom: "none",
+          borderLeft: "none",
+          position: isTablet ? "fixed" : "sticky",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: isTablet ? 40 : 20,
+          transform: isTablet
+            ? sidebarOpen
+              ? "translateX(0)"
+              : "translateX(-110%)"
+            : "translateX(0)",
+          transition: "transform 220ms ease",
+          boxShadow: isTablet ? "0 20px 42px rgba(2, 6, 23, 0.48)" : "none",
           display: "flex",
           flexDirection: "column",
+          gap: "1rem",
+          background: "rgba(8, 17, 29, 0.88)",
         }}
       >
         <div
-          style={{ padding: "2rem 1.5rem", borderBottom: "1px solid #f1f5f9" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
         >
-          <h2
-            style={{ fontSize: "1.25rem", fontWeight: "700", color: "#0f172a" }}
-          >
-            Admin Panel
-          </h2>
-          <p style={{ fontSize: "0.875rem", color: "#64748b" }}>
-            Tourism Safety System
-          </p>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#d7f1ff" }}>
+              Admin Dashboard
+            </div>
+            <div style={{ fontSize: 12, color: "#96b3c3" }}>
+              Tourism Safety System
+            </div>
+          </div>
+          {isTablet ? (
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={iconButtonStyle()}
+              aria-label="Close sidebar"
+            >
+              <FiX />
+            </button>
+          ) : null}
         </div>
 
-        <nav style={{ flex: 1, padding: "1.5rem 1rem" }}>
-          <SidebarLink
-            icon={<FiUsers />}
-            label="Tourists"
-            active={activeTab === "tourists"}
-            onClick={() => setActiveTab("tourists")}
-          />
-          <SidebarLink
-            icon={<FiMap />}
-            label="Heatmap"
-            active={activeTab === "heatmap"}
-            onClick={() => setActiveTab("heatmap")}
-          />
-          <SidebarLink
-            icon={<FiAlertTriangle />}
-            label="Alert Logs"
-            active={activeTab === "alerts"}
-            onClick={() => setActiveTab("alerts")}
-          />
-          <SidebarLink
-            icon={<FiFileText />}
-            label="E-FIR Portal"
-            active={activeTab === "fir"}
-            onClick={() => setActiveTab("fir")}
-          />
+        <nav style={{ display: "grid", gap: 8 }}>
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const active = activeNav === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => {
+                  setActiveNav(item.key);
+                  setSidebarOpen(false);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  borderRadius: 12,
+                  border: active
+                    ? "1px solid rgba(159,233,255,0.45)"
+                    : "1px solid transparent",
+                  padding: "0.8rem 0.9rem",
+                  color: active ? "#e8f7ff" : "#a8c4d4",
+                  background: active
+                    ? "rgba(79, 180, 255, 0.14)"
+                    : "transparent",
+                  cursor: "pointer",
+                  fontWeight: active ? 700 : 600,
+                }}
+              >
+                <Icon />
+                {item.label}
+              </button>
+            );
+          })}
         </nav>
 
-        <div style={{ padding: "1rem", borderTop: "1px solid #f1f5f9" }}>
+        <div style={{ marginTop: "auto", display: "grid", gap: 10 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: "#9bb4c2",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <FiClock />
+            Auto-refresh every 10s
+          </div>
           <button
-            onClick={logout}
+            onClick={handleLogout}
+            style={{ ...iconButtonStyle(), width: "100%", borderRadius: 10 }}
+          >
+            <FiLogOut />
+            <span style={{ marginLeft: 8 }}>Logout</span>
+          </button>
+        </div>
+      </aside>
+
+      <main style={{ flex: 1, minWidth: 0, padding: "1rem 1rem 1.25rem 1rem" }}>
+        <header
+          className="glass-card"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: "space-between",
+            padding: "0.85rem 1rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "0.75rem",
-              width: "100%",
-              padding: "0.75rem",
-              borderRadius: "8px",
-              border: "none",
-              background: "transparent",
-              color: "#ef4444",
-              fontWeight: "600",
-              cursor: "pointer",
+              gap: 10,
+              minWidth: 0,
             }}
           >
-            <FiLogOut /> Logout
-          </button>
-        </div>
-      </div>
+            {isTablet ? (
+              <button
+                onClick={() => setSidebarOpen((prev) => !prev)}
+                style={iconButtonStyle()}
+                aria-label="Toggle sidebar"
+              >
+                <FiMenu />
+              </button>
+            ) : null}
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 18,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {titleFor(activeNav)}
+            </h2>
+            {busy && (
+              <FiRefreshCw style={{ animation: "spin 1s linear infinite" }} />
+            )}
+          </div>
 
-      {/* Main Content */}
-      <main style={{ flex: 1, overflowY: "auto", position: "relative" }}>
-        <header
-          style={{
-            background: "#ffffff",
-            padding: "1rem 2rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            borderBottom: "1px solid #e2e8f0",
-            sticky: "top",
-            zIndex: 10,
-          }}
-        >
-          <h1 style={{ fontSize: "1.5rem", fontWeight: "600" }}>
-            {activeTab === "tourists" && "Tourist Live Monitoring"}
-            {activeTab === "heatmap" && "Risk Heatmap"}
-            {activeTab === "alerts" && "Zone Breach Logs"}
-            {activeTab === "fir" && "Automated E-FIR Generator"}
-          </h1>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+            }}
+          >
             <div style={{ position: "relative" }}>
               <FiSearch
                 style={{
                   position: "absolute",
-                  left: "12px",
+                  left: 10,
                   top: "50%",
                   transform: "translateY(-50%)",
-                  color: "#94a3b8",
+                  color: "#8fb1c5",
                 }}
               />
               <input
-                type="text"
-                placeholder="Search name or ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={searchPlaceholder(activeNav)}
                 style={{
-                  padding: "0.6rem 1rem 0.6rem 2.5rem",
-                  borderRadius: "8px",
-                  border: "1px solid #e2e8f0",
-                  fontSize: "0.875rem",
-                  width: "240px",
+                  width: 250,
+                  maxWidth: "70vw",
+                  borderRadius: 10,
+                  border: "1px solid rgba(180, 226, 244, 0.28)",
+                  padding: "0.58rem 0.75rem 0.58rem 2rem",
+                  background: "rgba(10, 18, 30, 0.45)",
+                  color: "#e8f7ff",
                 }}
               />
             </div>
             <button
-              onClick={fetchData}
-              className="refresh-btn"
-              style={{
-                padding: "0.6rem",
-                borderRadius: "8px",
-                border: "1px solid #e2e8f0",
-                background: "white",
-                cursor: "pointer",
-              }}
+              onClick={() => fetchAll({ silent: false })}
+              style={iconButtonStyle()}
+              title="Refresh now"
             >
               <FiRefreshCw />
             </button>
           </div>
         </header>
 
-        <div style={{ padding: "2rem" }}>
-          <AnimatePresence mode="wait">
-            {activeTab === "tourists" && (
-              <motion.div
-                key="tourists"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-              >
+        {message ? (
+          <div
+            className="glass-card"
+            style={{
+              marginBottom: "1rem",
+              padding: "0.8rem 1rem",
+              borderColor: "rgba(248, 113, 113, 0.55)",
+              color: "#ffd2d2",
+            }}
+          >
+            {message}
+          </div>
+        ) : null}
+
+        <AnimatePresence mode="wait">
+          {loading ? (
+            <div
+              key="loading"
+              className="glass-card"
+              style={{ padding: "2rem", textAlign: "center" }}
+            >
+              Loading admin module...
+            </div>
+          ) : (
+            <div key={activeNav} style={{ display: "grid", gap: "1rem" }}>
+              {isMapMode ? (
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "2rem",
-                    height: "calc(100vh - 200px)",
+                    gap: "1rem",
+                    gridTemplateColumns:
+                      activeNav === "tourists"
+                        ? "minmax(320px, 1fr) minmax(420px, 1.1fr)"
+                        : "1fr",
                   }}
                 >
-                  <div
-                    className="glass-card"
-                    style={{
-                      background: "white",
-                      padding: "1.5rem",
-                      borderRadius: "16px",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                      overflowY: "auto",
-                    }}
-                  >
-                    <table
-                      style={{ width: "100%", borderCollapse: "collapse" }}
-                    >
-                      <thead>
-                        <tr
-                          style={{
-                            textAlign: "left",
-                            borderBottom: "1px solid #f1f5f9",
-                          }}
-                        >
-                          <th
-                            style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                          >
-                            Tourist
-                          </th>
-                          <th
-                            style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                          >
-                            Status
-                          </th>
-                          <th
-                            style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                          >
-                            Last Seen
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredTourists.map((t) => {
-                          const loc = t.lastHeartbeat || t.lastKnownLocation;
-                          return (
-                            <tr
-                              key={t.blockchainId}
-                              style={{ borderBottom: "1px solid #f8fafc" }}
-                            >
-                              <td style={{ padding: "1rem 0.5rem" }}>
-                                <div style={{ fontWeight: "600" }}>
-                                  {t.name}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "0.75rem",
-                                    color: "#94a3b8",
-                                  }}
-                                >
-                                  {t.blockchainId}
-                                </div>
-                              </td>
-                              <td style={{ padding: "1rem 0.5rem" }}>
-                                <span
-                                  style={{
-                                    padding: "0.25rem 0.75rem",
-                                    borderRadius: "99px",
-                                    fontSize: "0.75rem",
-                                    fontWeight: "600",
-                                    background:
-                                      loc?.riskLevel === "danger"
-                                        ? "#fee2e2"
-                                        : loc?.riskLevel === "moderate"
-                                          ? "#ffedd5"
-                                          : "#dcfce7",
-                                    color:
-                                      loc?.riskLevel === "danger"
-                                        ? "#dc2626"
-                                        : loc?.riskLevel === "moderate"
-                                          ? "#ea580c"
-                                          : "#16a34a",
-                                  }}
-                                >
-                                  {loc?.riskLevel || "Safe"}
-                                </span>
-                              </td>
-                              <td
-                                style={{
-                                  padding: "1rem 0.5rem",
-                                  fontSize: "0.875rem",
-                                }}
-                              >
-                                {loc
-                                  ? new Date(loc.timestamp).toLocaleTimeString()
-                                  : "N/A"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div
-                    id="map"
-                    ref={mapContainerRef}
-                    style={{
-                      borderRadius: "16px",
-                      overflow: "hidden",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  ></div>
-                </div>
-              </motion.div>
-            )}
+                  {activeNav === "tourists" ? (
+                    <TouristMonitoringTable tourists={filteredTourists} />
+                  ) : null}
 
-            {activeTab === "heatmap" && (
-              <motion.div
-                key="heatmap"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{ height: "calc(100vh - 200px)" }}
-              >
-                <div
-                  ref={mapContainerRef}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    borderRadius: "16px",
-                    overflow: "hidden",
-                  }}
-                ></div>
-              </motion.div>
-            )}
-
-            {activeTab === "alerts" && (
-              <motion.div
-                key="alerts"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div
-                  className="glass-card"
-                  style={{
-                    background: "white",
-                    padding: "1.5rem",
-                    borderRadius: "16px",
-                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                  }}
-                >
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr
-                        style={{
-                          textAlign: "left",
-                          borderBottom: "1px solid #f1f5f9",
-                        }}
-                      >
-                        <th
-                          style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                        >
-                          Tourist
-                        </th>
-                        <th
-                          style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                        >
-                          Zone
-                        </th>
-                        <th
-                          style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                        >
-                          Risk
-                        </th>
-                        <th
-                          style={{ padding: "1rem 0.5rem", color: "#64748b" }}
-                        >
-                          Time
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...alerts].reverse().map((a) => (
-                        <tr
-                          key={a.id}
-                          style={{ borderBottom: "1px solid #f8fafc" }}
-                        >
-                          <td style={{ padding: "1rem 0.5rem" }}>
-                            <div style={{ fontWeight: "600" }}>
-                              {a.userName}
-                            </div>
-                            <div
-                              style={{ fontSize: "0.75rem", color: "#94a3b8" }}
-                            >
-                              {a.blockchainId}
-                            </div>
-                          </td>
-                          <td style={{ padding: "1rem 0.5rem" }}>
-                            {a.zoneName}
-                          </td>
-                          <td style={{ padding: "1rem 0.5rem" }}>
-                            <span
-                              style={{
-                                color:
-                                  a.riskLevel === "danger"
-                                    ? "#dc2626"
-                                    : "#ea580c",
-                                fontWeight: "600",
-                              }}
-                            >
-                              {a.riskLevel.toUpperCase()}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              padding: "1rem 0.5rem",
-                              fontSize: "0.875rem",
-                            }}
-                          >
-                            {new Date(a.timestamp).toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === "fir" && (
-              <motion.div
-                key="fir"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "2rem",
-                  }}
-                >
-                  <div
-                    className="glass-card"
-                    style={{
-                      background: "white",
-                      padding: "2rem",
-                      borderRadius: "16px",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  >
-                    <h3 style={{ marginBottom: "1.5rem" }}>
-                      Generate New E-FIR
-                    </h3>
-                    <FirForm tourists={tourists} onRecordCreated={fetchData} />
-                  </div>
-                  <div
-                    className="glass-card"
-                    style={{
-                      background: "white",
-                      padding: "2rem",
-                      borderRadius: "16px",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  >
-                    <h3 style={{ marginBottom: "1.5rem" }}>
-                      Recent FIR Records
-                    </h3>
+                  <section className="glass-card" style={{ padding: "0.8rem" }}>
                     <div
                       style={{
                         display: "flex",
-                        flexDirection: "column",
-                        gap: "1rem",
+                        justifyContent: "space-between",
+                        marginBottom: 10,
                       }}
                     >
-                      {firs.map((f) => (
-                        <div
-                          key={f.id}
-                          style={{
-                            padding: "1rem",
-                            borderRadius: "8px",
-                            border: "1px solid #e2e8f0",
-                            background: "#f8fafc",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              marginBottom: "0.5rem",
-                            }}
-                          >
-                            <strong>{f.touristName}</strong>
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "0.5rem",
-                                alignItems: "center",
-                              }}
-                            >
-                              <button
-                                onClick={() => {
-                                  const text = `E-FIR REPORT\nID: ${f.id}\nTourist: ${f.touristName} (${f.touristId})\nLast Seen: ${f.lastSeenLocation}\nDescription: ${f.description}\nTimestamp: ${new Date(f.timestamp).toLocaleString()}\nStatus: ${f.status}`;
-                                  const element = document.createElement("a");
-                                  const file = new Blob([text], {
-                                    type: "text/plain",
-                                  });
-                                  element.href = URL.createObjectURL(file);
-                                  element.download = `${f.id}.txt`;
-                                  document.body.appendChild(element);
-                                  element.click();
-                                }}
-                                style={{
-                                  background: "transparent",
-                                  border: "none",
-                                  color: "#1d4ed8",
-                                  cursor: "pointer",
-                                  fontSize: "0.75rem",
-                                  textDecoration: "underline",
-                                }}
-                              >
-                                Download
-                              </button>
-                              <span
-                                style={{
-                                  fontSize: "0.75rem",
-                                  color: "#64748b",
-                                }}
-                              >
-                                {f.id}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div
-                            style={{ fontSize: "0.875rem", color: "#475569" }}
-                          >
-                            Last seen: {f.lastSeenLocation}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "0.875rem",
-                              marginTop: "0.5rem",
-                            }}
-                          >
-                            {f.description}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: "0.75rem",
-                              marginTop: "0.5rem",
-                              color: "#94a3b8",
-                            }}
-                          >
-                            {new Date(f.timestamp).toLocaleString()}
-                          </div>
-                        </div>
-                      ))}
+                      <div style={{ fontWeight: 700 }}>
+                        {activeNav === "tourists"
+                          ? "Live Location Map"
+                          : "Heat Map & Cluster View"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#9dc0d3" }}>
+                        Updated:{" "}
+                        {lastUpdated ? formatDateTime(lastUpdated) : "—"}
+                      </div>
                     </div>
-                  </div>
+
+                    <div
+                      ref={mapContainerRef}
+                      style={{
+                        width: "100%",
+                        height: "calc(100vh - 230px)",
+                        minHeight: 420,
+                        borderRadius: 14,
+                        overflow: "hidden",
+                        border: "1px solid rgba(186, 225, 241, 0.2)",
+                      }}
+                    />
+
+                    {activeNav === "heatmap" ? (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          color: "#a9c7d7",
+                          fontSize: 12,
+                        }}
+                      >
+                        <FiFilter />
+                        Density zones and risk overlays are interactive.
+                        Zoom/pan enabled.
+                      </div>
+                    ) : null}
+                  </section>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+              ) : null}
+
+              {activeNav === "records" ? (
+                <DigitalIdRecordsTable records={records} />
+              ) : null}
+
+              {activeNav === "alerts" ? (
+                <AlertsTable alerts={filteredAlerts} />
+              ) : null}
+
+              {activeNav === "fir" ? (
+                <FirPanel
+                  tourists={tourists}
+                  firs={firs}
+                  onCreated={() => fetchAll({ silent: true })}
+                />
+              ) : null}
+            </div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );
 }
 
-function SidebarLink({ icon, label, active, onClick }) {
+function TouristMonitoringTable({ tourists }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "0.75rem",
-        width: "100%",
-        padding: "0.875rem 1rem",
-        borderRadius: "12px",
-        border: "none",
-        background: active ? "#eff6ff" : "transparent",
-        color: active ? "#1d4ed8" : "#64748b",
-        fontWeight: active ? "600" : "500",
-        cursor: "pointer",
-        marginBottom: "0.5rem",
-        transition: "all 0.2s",
-      }}
+    <section
+      className="glass-card"
+      style={{ padding: "1rem", overflow: "auto", minWidth: 0 }}
     >
-      <span style={{ fontSize: "1.1rem" }}>{icon}</span>
-      {label}
-    </button>
+      <h3 style={{ marginTop: 0 }}>Tourist Live Monitoring</h3>
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
+      >
+        <thead>
+          <tr
+            style={{
+              textAlign: "left",
+              borderBottom: "1px solid rgba(180,225,244,0.2)",
+            }}
+          >
+            <th style={thStyle}>Tourist</th>
+            <th style={thStyle}>Blockchain ID</th>
+            <th style={thStyle}>Login Timestamp</th>
+            <th style={thStyle}>Location</th>
+            <th style={thStyle}>Risk</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tourists.map((t) => {
+            const loc = getLocation(t);
+            const risk = normalizeRisk(loc?.riskLevel || t.riskZoneStatus);
+            return (
+              <tr
+                key={t.blockchainId || t.username}
+                style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
+              >
+                <td style={tdStyle}>
+                  <strong>{t.name || t.username || "Unknown"}</strong>
+                </td>
+                <td style={tdStyle}>{t.blockchainId || "N/A"}</td>
+                <td style={tdStyle}>{formatDateTime(t.loginTimestamp)}</td>
+                <td style={tdStyle}>
+                  {loc ? `${fixed(loc.lat)}, ${fixed(loc.lng)}` : "No location"}
+                </td>
+                <td style={tdStyle}>
+                  <span style={riskPillStyle(risk)}>{risk.toUpperCase()}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {tourists.length === 0 ? (
+        <EmptyNote text="No tourists found for the selected query." />
+      ) : null}
+    </section>
   );
 }
 
-function FirForm({ tourists, onRecordCreated }) {
-  const [formData, setFormData] = useState({
+function DigitalIdRecordsTable({ records }) {
+  return (
+    <section
+      className="glass-card"
+      style={{ padding: "1rem", overflow: "auto" }}
+    >
+      <h3 style={{ marginTop: 0 }}>Digital ID Records Viewer</h3>
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
+      >
+        <thead>
+          <tr
+            style={{
+              textAlign: "left",
+              borderBottom: "1px solid rgba(180,225,244,0.2)",
+            }}
+          >
+            <th style={thStyle}>Name</th>
+            <th style={thStyle}>Blockchain ID</th>
+            <th style={thStyle}>Trip Itinerary</th>
+            <th style={thStyle}>Emergency Contacts</th>
+            <th style={thStyle}>Validity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((r) => (
+            <tr
+              key={r.blockchainId}
+              style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
+            >
+              <td style={tdStyle}>{r.name}</td>
+              <td style={tdStyle}>{r.blockchainId}</td>
+              <td style={tdStyle}>{r.itinerary}</td>
+              <td style={tdStyle}>{r.emergencyContacts}</td>
+              <td style={tdStyle}>
+                {formatDateTime(r.validFrom)} → {formatDateTime(r.validTill)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {records.length === 0 ? (
+        <EmptyNote text="No ID records available." />
+      ) : null}
+    </section>
+  );
+}
+
+function AlertsTable({ alerts }) {
+  return (
+    <section
+      className="glass-card"
+      style={{ padding: "1rem", overflow: "auto" }}
+    >
+      <h3 style={{ marginTop: 0 }}>Alert & Zone Breach Logs</h3>
+      <table
+        style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
+      >
+        <thead>
+          <tr
+            style={{
+              textAlign: "left",
+              borderBottom: "1px solid rgba(180,225,244,0.2)",
+            }}
+          >
+            <th style={thStyle}>Tourist</th>
+            <th style={thStyle}>ID</th>
+            <th style={thStyle}>Timestamp</th>
+            <th style={thStyle}>Zone</th>
+            <th style={thStyle}>Risk</th>
+          </tr>
+        </thead>
+        <tbody>
+          {alerts.map((a) => {
+            const risk = normalizeRisk(a.riskLevel);
+            return (
+              <tr
+                key={a.id}
+                style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
+              >
+                <td style={tdStyle}>{a.userName || "Unknown"}</td>
+                <td style={tdStyle}>{a.blockchainId || "N/A"}</td>
+                <td style={tdStyle}>{formatDateTime(a.timestamp)}</td>
+                <td style={tdStyle}>{a.zoneName || "Unknown Zone"}</td>
+                <td style={tdStyle}>
+                  <span style={riskPillStyle(risk)}>{risk.toUpperCase()}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {alerts.length === 0 ? (
+        <EmptyNote text="No breach alerts available." />
+      ) : null}
+    </section>
+  );
+}
+
+function FirPanel({ tourists, firs, onCreated }) {
+  const [form, setForm] = useState({
     touristId: "",
     lastSeenLocation: "",
     description: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  const handleSubmit = async (e) => {
+  async function submitFir(e) {
     e.preventDefault();
-    setSubmitting(true);
+    if (submitting) return;
+
     const token = localStorage.getItem("token");
-    const selectedTourist = tourists.find(
-      (t) => t.blockchainId === formData.touristId,
-    );
+    const selected = tourists.find((t) => t.blockchainId === form.touristId);
+
+    setSubmitting(true);
+    setNotice("");
 
     try {
       const res = await fetch(`${API_URL}/admin/fir`, {
@@ -744,129 +934,335 @@ function FirForm({ tourists, onRecordCreated }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          ...formData,
-          touristName: selectedTourist?.name || "Unknown",
+          touristId: form.touristId,
+          touristName: selected?.name || selected?.username || "",
+          lastSeenLocation: form.lastSeenLocation,
+          description: form.description,
         }),
       });
-      if (res.ok) {
-        setFormData({ touristId: "", lastSeenLocation: "", description: "" });
-        onRecordCreated();
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setNotice(data.error || "Unable to generate E-FIR.");
+        return;
       }
-    } catch (err) {
-      console.error(err);
+
+      setNotice("E-FIR generated successfully.");
+      setForm({ touristId: "", lastSeenLocation: "", description: "" });
+      onCreated?.();
+    } catch {
+      setNotice("Network error while generating E-FIR.");
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}
+    <div
+      style={{
+        display: "grid",
+        gap: "1rem",
+        gridTemplateColumns: "minmax(300px, 1fr) minmax(300px, 1fr)",
+      }}
     >
-      <div>
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.875rem",
-            fontWeight: "600",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Select Tourist
-        </label>
-        <select
-          required
-          value={formData.touristId}
-          onChange={(e) =>
-            setFormData({ ...formData, touristId: e.target.value })
-          }
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            borderRadius: "8px",
-            border: "1px solid #e2e8f0",
-          }}
-        >
-          <option value="">Choose a tourist...</option>
-          {tourists.map((t) => (
-            <option key={t.blockchainId} value={t.blockchainId}>
-              {t.name} ({t.blockchainId})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.875rem",
-            fontWeight: "600",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Last Seen Location
-        </label>
-        <input
-          required
-          type="text"
-          value={formData.lastSeenLocation}
-          onChange={(e) =>
-            setFormData({ ...formData, lastSeenLocation: e.target.value })
-          }
-          placeholder="e.g. Bhamragad Forest Area"
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            borderRadius: "8px",
-            border: "1px solid #e2e8f0",
-          }}
-        />
-      </div>
-      <div>
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.875rem",
-            fontWeight: "600",
-            marginBottom: "0.5rem",
-          }}
-        >
-          Description / Comments
-        </label>
-        <textarea
-          required
-          rows={4}
-          value={formData.description}
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
-          placeholder="Enter details about the missing report..."
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            borderRadius: "8px",
-            border: "1px solid #e2e8f0",
-            resize: "none",
-          }}
-        />
-      </div>
-      <button
-        type="submit"
-        disabled={submitting}
-        style={{
-          padding: "0.875rem",
-          borderRadius: "8px",
-          border: "none",
-          background: "#1d4ed8",
-          color: "white",
-          fontWeight: "600",
-          cursor: submitting ? "not-allowed" : "pointer",
-          marginTop: "1rem",
-        }}
+      <section className="glass-card" style={{ padding: "1rem" }}>
+        <h3 style={{ marginTop: 0 }}>Automated E-FIR Generator (Prototype)</h3>
+        <form onSubmit={submitFir} style={{ display: "grid", gap: "0.9rem" }}>
+          <label style={labelStyle}>
+            Select Tourist Name / ID
+            <select
+              required
+              value={form.touristId}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, touristId: e.target.value }))
+              }
+              style={inputStyle}
+            >
+              <option value="">Choose tourist...</option>
+              {tourists.map((t) => (
+                <option key={t.blockchainId} value={t.blockchainId}>
+                  {t.name || t.username} ({t.blockchainId})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={labelStyle}>
+            Last Seen Location
+            <input
+              required
+              value={form.lastSeenLocation}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, lastSeenLocation: e.target.value }))
+              }
+              placeholder="Example: Main market, Gadchiroli"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={labelStyle}>
+            Description / Comments
+            <textarea
+              required
+              rows={4}
+              value={form.description}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, description: e.target.value }))
+              }
+              placeholder="Add missing report details..."
+              style={{ ...inputStyle, resize: "vertical", minHeight: 110 }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="pill-btn"
+            style={{ padding: "0.75rem 1rem", borderRadius: 10 }}
+          >
+            {submitting ? "Generating..." : "Generate E-FIR"}
+          </button>
+        </form>
+        {notice ? (
+          <p style={{ marginTop: 10, color: "#cce9f7", fontSize: 13 }}>
+            {notice}
+          </p>
+        ) : null}
+      </section>
+
+      <section
+        className="glass-card"
+        style={{ padding: "1rem", overflow: "auto" }}
       >
-        {submitting ? "Generating..." : "Generate E-FIR Report"}
-      </button>
-    </form>
+        <h3 style={{ marginTop: 0 }}>Recent E-FIR Records</h3>
+        <div style={{ display: "grid", gap: "0.75rem" }}>
+          {firs
+            .slice()
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .map((f) => (
+              <article
+                key={f.id}
+                style={{
+                  border: "1px solid rgba(190,229,244,0.24)",
+                  borderRadius: 12,
+                  padding: "0.75rem",
+                  background: "rgba(16, 25, 36, 0.45)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <strong>{f.touristName || "Unknown Tourist"}</strong>
+                  <button
+                    onClick={() => downloadFirEntry(f)}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "#9fe9ff",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      fontSize: 12,
+                    }}
+                  >
+                    Download log
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: "#9eb7c5", marginTop: 2 }}>
+                  {f.id}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  <div>
+                    <strong>Last seen:</strong> {f.lastSeenLocation}
+                  </div>
+                  <div style={{ marginTop: 4 }}>{f.description}</div>
+                  <div style={{ marginTop: 6, color: "#9db4c2", fontSize: 12 }}>
+                    {formatDateTime(f.timestamp)}
+                  </div>
+                </div>
+              </article>
+            ))}
+        </div>
+        {firs.length === 0 ? (
+          <EmptyNote text="No E-FIR records generated yet." />
+        ) : null}
+      </section>
+    </div>
   );
 }
+
+function buildClusters(items) {
+  const buckets = new Map();
+
+  items.forEach(({ loc }) => {
+    const key = `${roundTo(loc.lat, 2)}_${roundTo(loc.lng, 2)}`;
+    const risk = riskWeight(normalizeRisk(loc.riskLevel));
+
+    const curr = buckets.get(key) || {
+      latSum: 0,
+      lngSum: 0,
+      count: 0,
+      riskSum: 0,
+    };
+
+    curr.latSum += loc.lat;
+    curr.lngSum += loc.lng;
+    curr.count += 1;
+    curr.riskSum += risk;
+    buckets.set(key, curr);
+  });
+
+  return Array.from(buckets.values()).map((entry) => ({
+    lat: entry.latSum / entry.count,
+    lng: entry.lngSum / entry.count,
+    count: entry.count,
+    avgRisk: entry.riskSum / entry.count,
+  }));
+}
+
+function getLocation(tourist) {
+  const candidate =
+    tourist?.currentLocation ||
+    tourist?.lastHeartbeat ||
+    tourist?.lastKnownLocation ||
+    null;
+
+  if (!candidate) return null;
+  const lat = Number(candidate.lat);
+  const lng = Number(candidate.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return {
+    lat,
+    lng,
+    zoneName: candidate.zoneName || tourist.zoneName || "Unknown",
+    riskLevel: candidate.riskLevel || tourist.riskZoneStatus || "safe",
+    timestamp: Number(candidate.timestamp || Date.now()),
+  };
+}
+
+function normalizeRisk(value) {
+  const risk = String(value || "").toLowerCase();
+  if (risk === "danger" || risk === "moderate" || risk === "safe") return risk;
+  if (risk === "high" || risk === "restricted" || risk === "high_crime")
+    return "danger";
+  if (risk === "medium" || risk === "warning" || risk === "time_based")
+    return "moderate";
+  return "safe";
+}
+
+function riskColor(risk) {
+  if (risk === "danger") return "#ef4444";
+  if (risk === "moderate") return "#f97316";
+  return "#22c55e";
+}
+
+function riskWeight(risk) {
+  if (risk === "danger") return 2;
+  if (risk === "moderate") return 1;
+  return 0.3;
+}
+
+function riskPillStyle(risk) {
+  const color = riskColor(risk);
+  return {
+    background: `${color}22`,
+    color,
+    border: `1px solid ${color}55`,
+    fontWeight: 700,
+    fontSize: 12,
+    borderRadius: 999,
+    padding: "2px 10px",
+    display: "inline-block",
+  };
+}
+
+function downloadFirEntry(fir) {
+  const content = [
+    "TOURISM SAFETY SYSTEM - E-FIR REPORT",
+    "------------------------------------",
+    `FIR ID: ${fir.id || "N/A"}`,
+    `Tourist: ${fir.touristName || "N/A"}`,
+    `Tourist ID: ${fir.touristId || "N/A"}`,
+    `Last Seen Location: ${fir.lastSeenLocation || "N/A"}`,
+    `Description: ${fir.description || "N/A"}`,
+    `Status: ${fir.status || "Reported"}`,
+    `Created At: ${formatDateTime(fir.timestamp)}`,
+  ].join("\n");
+
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${fir.id || "e-fir-report"}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function titleFor(key) {
+  if (key === "tourists") return "Tourist Live Monitoring";
+  if (key === "heatmap") return "Interactive Heat Map & Cluster View";
+  if (key === "records") return "Digital ID Records Viewer";
+  if (key === "alerts") return "Alert & Zone Breach Logs";
+  return "Automated E-FIR Generator";
+}
+
+function searchPlaceholder(key) {
+  if (key === "alerts") return "Search name, ID, zone...";
+  if (key === "records") return "Search records by name or ID...";
+  return "Search by name or blockchain ID...";
+}
+
+function formatDateTime(value) {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return date.toLocaleString();
+}
+
+function fixed(n) {
+  return Number(n).toFixed(5);
+}
+
+function roundTo(n, decimals) {
+  const p = 10 ** decimals;
+  return Math.round(Number(n) * p) / p;
+}
+
+function iconButtonStyle() {
+  return {
+    border: "1px solid rgba(167, 224, 248, 0.35)",
+    background: "rgba(255, 255, 255, 0.1)",
+    color: "#d8f1ff",
+    borderRadius: 8,
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0.52rem 0.62rem",
+  };
+}
+
+function EmptyNote({ text }) {
+  return (
+    <div style={{ marginTop: 10, fontSize: 13, color: "#9fc0d3" }}>{text}</div>
+  );
+}
+
+const thStyle = { padding: "0.6rem 0.45rem", fontSize: 12, color: "#9dc0d3" };
+const tdStyle = { padding: "0.65rem 0.45rem", verticalAlign: "top" };
+const labelStyle = { display: "grid", gap: 6, fontSize: 13, color: "#cce6f3" };
+const inputStyle = {
+  border: "1px solid rgba(180,226,244,0.28)",
+  borderRadius: 10,
+  padding: "0.65rem 0.75rem",
+  background: "rgba(8, 16, 26, 0.55)",
+  color: "#eaf9ff",
+};
