@@ -2232,17 +2232,18 @@ a:hover {
 }
 
 .gm-bottom-sheet {
-    height: 220px;
+    height: 260px;
     background: rgba(255, 255, 255, 0.97);
-    padding-bottom: 16px;
+    padding-bottom: 20px;
 }
 
 .gm-bottom-sheet-expanded {
-    height: 220px;
+    height: 260px;
 }
 
 .gm-sheet-content {
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: visible;
     height: calc(100% - 42px);
 }
 
@@ -2255,7 +2256,8 @@ a:hover {
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    height: 100%;
+    height: auto;
+    min-height: 0;
     align-items: stretch;
 }
 
