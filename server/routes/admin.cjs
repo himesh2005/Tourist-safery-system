@@ -48,6 +48,53 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
     };
   }
 
+  function buildLegacySafeUserRows() {
+    const byKey = new Map();
+
+    for (const [usernameKey, user] of users.entries()) {
+      if (!user || typeof user !== "object") continue;
+
+      const username = safeString(user.username) || safeString(usernameKey);
+      const blockchainId = safeString(user.blockchainId);
+      const profile = blockchainId ? profiles.get(blockchainId) || null : null;
+      const key = blockchainId || `legacy-user:${username}`;
+
+      byKey.set(key, {
+        user,
+        profile,
+        username,
+        blockchainId: blockchainId || safeString(profile?.blockchainId),
+      });
+    }
+
+    for (const [profileKey, profile] of profiles.entries()) {
+      if (!profile || typeof profile !== "object") continue;
+
+      const blockchainId = safeString(profile.blockchainId || profileKey);
+      const username = safeString(profile.username);
+      const key =
+        blockchainId ||
+        `legacy-profile:${username || safeString(profile.name) || "unknown"}`;
+
+      if (byKey.has(key)) {
+        const existing = byKey.get(key);
+        if (!existing.profile) existing.profile = profile;
+        if (!existing.username) existing.username = username;
+        if (!existing.blockchainId) existing.blockchainId = blockchainId;
+        continue;
+      }
+
+      byKey.set(key, {
+        user: null,
+        profile,
+        username,
+        blockchainId,
+      });
+    }
+
+    return Array.from(byKey.values());
+  }
+
   function ensureDataFile() {
     const filePath = safeString(DATA_PATH);
     if (!filePath) return;
@@ -141,27 +188,42 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
   router.get("/tourists", adminAuth, (req, res) => {
     const q = safeString(req.query?.q).toLowerCase();
 
-    const tourists = Array.from(users.values())
-      .map((u) => {
-        const profile = profiles.get(u.blockchainId) || {};
+    const tourists = buildLegacySafeUserRows()
+      .map((entry) => {
+        const u = entry.user || {};
+        const profile = entry.profile || {};
         const location = resolveLocation(u, profile);
+
+        const blockchainId =
+          safeString(
+            entry.blockchainId || u.blockchainId || profile.blockchainId,
+          ) || null;
+        const username = safeString(entry.username || u.username) || "--";
+        const name = safeString(u.name || profile.name || username) || "--";
+
         const loginTimestamp =
           Number(u.lastLoginAt || profile.lastLoginAt || 0) ||
           Number(new Date(profile.createdAt || 0).getTime()) ||
           null;
 
         const itinerary =
-          profile.itinerary ||
-          profile.tripItinerary ||
-          profile.travelPlan ||
-          "";
+          safeString(
+            profile.itinerary ||
+              profile.tripDetails ||
+              profile.tripItinerary ||
+              profile.travelPlan,
+          ) || null;
 
         const emergencyContacts =
-          profile.emergencyContacts ||
-          u.emergencyContact ||
-          u.phone ||
-          profile.mobile ||
-          "";
+          safeString(
+            profile.emergencyContactPhone ||
+              profile.emergencyContacts ||
+              u.emergencyPhone ||
+              u.emergencyContact ||
+              u.phone ||
+              profile.phone ||
+              profile.mobile,
+          ) || null;
 
         const validFrom =
           profile.createdAt || profile.validFrom || profile.issueDate || null;
@@ -170,9 +232,9 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
           profile.validTill || profile.validUntil || profile.validTo || null;
 
         return {
-          username: u.username,
-          name: u.name || profile.name || u.username,
-          blockchainId: u.blockchainId,
+          username,
+          name,
+          blockchainId,
           loginTimestamp,
 
           // Monitoring panel fields
@@ -191,7 +253,7 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
 
           // Digital ID records fields
           digitalIdRecord: {
-            blockchainId: u.blockchainId,
+            blockchainId,
             itinerary,
             emergencyContacts,
             validFrom,
@@ -225,24 +287,34 @@ module.exports = (users, profiles, saveData, DATA_PATH) => {
   // Optional alias for Digital ID panel consumers
   router.get("/records", adminAuth, (req, res) => {
     const q = safeString(req.query?.q).toLowerCase();
-    const records = Array.from(users.values())
-      .map((u) => {
-        const profile = profiles.get(u.blockchainId) || {};
+    const records = buildLegacySafeUserRows()
+      .map((entry) => {
+        const u = entry.user || {};
+        const profile = entry.profile || {};
         return {
-          name: u.name || profile.name || u.username,
-          username: u.username,
-          blockchainId: u.blockchainId,
+          name: safeString(u.name || profile.name || entry.username) || "--",
+          username: safeString(entry.username || u.username) || "--",
+          blockchainId:
+            safeString(
+              entry.blockchainId || u.blockchainId || profile.blockchainId,
+            ) || null,
           itinerary:
-            profile.itinerary ||
-            profile.tripItinerary ||
-            profile.travelPlan ||
-            "",
+            safeString(
+              profile.itinerary ||
+                profile.tripDetails ||
+                profile.tripItinerary ||
+                profile.travelPlan,
+            ) || null,
           emergencyContacts:
-            profile.emergencyContacts ||
-            u.emergencyContact ||
-            u.phone ||
-            profile.mobile ||
-            "",
+            safeString(
+              profile.emergencyContactPhone ||
+                profile.emergencyContacts ||
+                u.emergencyPhone ||
+                u.emergencyContact ||
+                u.phone ||
+                profile.phone ||
+                profile.mobile,
+            ) || null,
           validFrom:
             profile.createdAt || profile.validFrom || profile.issueDate || null,
           validTill:

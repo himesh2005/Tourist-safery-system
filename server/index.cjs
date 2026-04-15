@@ -163,23 +163,107 @@ function loadData() {
   try {
     if (!fs.existsSync(DATA_PATH)) return { users: {}, profiles: {} };
     const data = JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
+
+    if (!data.users || typeof data.users !== "object") data.users = {};
+    if (!data.profiles || typeof data.profiles !== "object") data.profiles = {};
+
     for (const [username, user] of Object.entries(data.users || {})) {
       if (!user || typeof user !== "object") continue;
-      const profile = data.profiles?.[user.blockchainId] || null;
-      if (!user.phone) {
-        user.phone =
-          user.emergencyContact ||
-          profile?.mobile ||
-          profile?.emergencyContacts ||
-          "";
-      }
+
+      // Keep old blockchain IDs intact and only normalize missing optional fields.
+      const blockchainId = String(user.blockchainId || "").trim();
+      const profile = blockchainId
+        ? data.profiles?.[blockchainId] || null
+        : null;
+
+      const fallbackPhone =
+        user.phone ||
+        user.mobile ||
+        user.emergencyPhone ||
+        user.emergencyContact ||
+        profile?.phone ||
+        profile?.mobile ||
+        profile?.emergencyContactPhone ||
+        profile?.emergencyContacts ||
+        "";
+
+      const fallbackEmergencyPhone =
+        user.emergencyPhone ||
+        user.emergencyContact ||
+        profile?.emergencyContactPhone ||
+        profile?.emergencyContacts ||
+        "";
+
+      if (!user.name) user.name = profile?.name || username;
+      if (!user.phone) user.phone = fallbackPhone;
+      if (!user.mobile) user.mobile = user.phone || fallbackPhone;
+      if (!user.emergencyPhone) user.emergencyPhone = fallbackEmergencyPhone;
       if (!user.emergencyContact) {
-        user.emergencyContact = profile?.emergencyContacts || user.phone || "";
+        user.emergencyContact = user.emergencyPhone || fallbackEmergencyPhone;
       }
-      if (!user.name) {
-        user.name = profile?.name || username;
+      if (!user.emergencyContactName) {
+        user.emergencyContactName =
+          profile?.emergencyContactName || "Emergency Contact";
+      }
+
+      if (blockchainId && profile && typeof profile === "object") {
+        let warned = false;
+        const warnLegacy = (field) => {
+          if (!warned) {
+            console.warn(
+              `[legacy-profile] Normalizing legacy profile for username=${username}, blockchainId=${blockchainId}`,
+            );
+            warned = true;
+          }
+          console.warn(
+            `[legacy-profile] Missing "${field}" on profile ${blockchainId}. Applied backward-compatible default.`,
+          );
+        };
+
+        if (!profile.name) {
+          profile.name = user.name || username;
+          warnLegacy("name");
+        }
+        if (!profile.phone) {
+          profile.phone =
+            user.phone || profile.mobile || profile.emergencyContacts || "";
+          warnLegacy("phone");
+        }
+        if (!profile.mobile) {
+          profile.mobile = profile.phone || user.phone || "";
+          warnLegacy("mobile");
+        }
+        if (!profile.emergencyContactPhone) {
+          profile.emergencyContactPhone =
+            user.emergencyPhone ||
+            user.emergencyContact ||
+            profile.emergencyContacts ||
+            "";
+          warnLegacy("emergencyContactPhone");
+        }
+        if (!profile.emergencyContacts) {
+          profile.emergencyContacts = profile.emergencyContactPhone || "";
+          warnLegacy("emergencyContacts");
+        }
+        if (!profile.emergencyContactName) {
+          profile.emergencyContactName =
+            user.emergencyContactName || "Emergency Contact";
+          warnLegacy("emergencyContactName");
+        }
+        if (!profile.itinerary) {
+          profile.itinerary =
+            profile.tripDetails ||
+            profile.tripItinerary ||
+            profile.travelPlan ||
+            "";
+          warnLegacy("itinerary");
+        }
+        if (!profile.tripDetails) {
+          profile.tripDetails = profile.itinerary || "";
+        }
       }
     }
+
     return data;
   } catch (e) {
     console.log("Failed to load data.json:", e);
@@ -1071,50 +1155,184 @@ app.post("/auth/login", async (req, res) => {
 
     const u = users.get(username);
     if (!u) return res.status(401).json({ error: "Invalid credentials" });
-    if (!u.passHash || typeof u.passHash !== "string") {
+
+    const passHash = String(u.passHash || u.passwordHash || "").trim();
+    if (!passHash) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const ok = await bcryptCompare(password, u.passHash);
+    const ok = await bcryptCompare(password, passHash);
     if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
     const loginTimestamp = Date.now();
-    u.lastLoginAt = loginTimestamp;
-    users.set(username, u);
 
-    const profile = profiles.get(u.blockchainId) || null;
-    if (profile && typeof profile === "object") {
-      profile.lastLoginAt = loginTimestamp;
-      profiles.set(u.blockchainId, profile);
+    const resolvedBlockchainId =
+      String(u.blockchainId || "").trim() ||
+      (() => {
+        const found = Array.from(profiles.entries()).find(
+          ([, p]) => String(p?.username || "").trim() === username,
+        );
+        return found ? String(found[0] || "").trim() : "";
+      })();
+
+    const profile =
+      (resolvedBlockchainId && profiles.get(resolvedBlockchainId)) ||
+      Array.from(profiles.values()).find(
+        (p) => String(p?.username || "").trim() === username,
+      ) ||
+      null;
+
+    const normalizedUser = {
+      ...u,
+      username,
+      blockchainId: resolvedBlockchainId || u.blockchainId || "",
+      name: u.name || profile?.name || username,
+      phone: u.phone || profile?.phone || profile?.mobile || "",
+      mobile: u.mobile || profile?.mobile || profile?.phone || u.phone || "",
+      emergencyPhone:
+        u.emergencyPhone ||
+        u.emergencyContact ||
+        profile?.emergencyContactPhone ||
+        profile?.emergencyContacts ||
+        "",
+      emergencyContact:
+        u.emergencyContact ||
+        u.emergencyPhone ||
+        profile?.emergencyContactPhone ||
+        profile?.emergencyContacts ||
+        "",
+      emergencyContactName:
+        u.emergencyContactName || profile?.emergencyContactName || "",
+      lastLoginAt: loginTimestamp,
+    };
+
+    users.set(username, normalizedUser);
+
+    if (profile && typeof profile === "object" && normalizedUser.blockchainId) {
+      const normalizedProfile = {
+        ...profile,
+        blockchainId: profile.blockchainId || normalizedUser.blockchainId,
+        username: profile.username || username,
+        name: profile.name || normalizedUser.name || username,
+        phone: profile.phone || normalizedUser.phone || "",
+        mobile:
+          profile.mobile ||
+          profile.phone ||
+          normalizedUser.mobile ||
+          normalizedUser.phone ||
+          "",
+        emergencyContactPhone:
+          profile.emergencyContactPhone ||
+          profile.emergencyContacts ||
+          normalizedUser.emergencyPhone ||
+          "",
+        emergencyContacts:
+          profile.emergencyContacts ||
+          profile.emergencyContactPhone ||
+          normalizedUser.emergencyPhone ||
+          "",
+        emergencyContactName:
+          profile.emergencyContactName ||
+          normalizedUser.emergencyContactName ||
+          "",
+        itinerary:
+          profile.itinerary ||
+          profile.tripDetails ||
+          profile.tripItinerary ||
+          profile.travelPlan ||
+          "",
+        tripDetails:
+          profile.tripDetails ||
+          profile.itinerary ||
+          profile.tripItinerary ||
+          profile.travelPlan ||
+          "",
+        lastLoginAt: loginTimestamp,
+      };
+
+      profiles.set(normalizedUser.blockchainId, normalizedProfile);
     }
+
     saveData();
 
     const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: "2h" });
+
+    const responseProfile =
+      (normalizedUser.blockchainId &&
+        profiles.get(normalizedUser.blockchainId)) ||
+      profile ||
+      null;
+
     res.json({
       token,
-      blockchainId: u.blockchainId,
+      blockchainId: normalizedUser.blockchainId || null,
       loginTimestamp,
-      profile: profile
+      profile: responseProfile
         ? {
-            blockchainId: profile.blockchainId,
-            name: profile.name,
-            phone: profile.phone || profile.mobile || u.phone || "",
-            mobile: profile.mobile || profile.phone || u.phone || "",
+            blockchainId:
+              responseProfile.blockchainId ||
+              normalizedUser.blockchainId ||
+              null,
+            name: responseProfile.name || normalizedUser.name || username,
+            phone:
+              responseProfile.phone ||
+              responseProfile.mobile ||
+              normalizedUser.phone ||
+              "",
+            mobile:
+              responseProfile.mobile ||
+              responseProfile.phone ||
+              normalizedUser.mobile ||
+              normalizedUser.phone ||
+              "",
             emergencyPhone:
-              profile.emergencyContactPhone ||
-              profile.emergencyContacts ||
-              u.emergencyContact ||
+              responseProfile.emergencyContactPhone ||
+              responseProfile.emergencyContacts ||
+              normalizedUser.emergencyPhone ||
+              normalizedUser.emergencyContact ||
               "",
             emergencyContacts:
-              profile.emergencyContacts ||
-              profile.emergencyContactPhone ||
-              u.emergencyContact ||
+              responseProfile.emergencyContacts ||
+              responseProfile.emergencyContactPhone ||
+              normalizedUser.emergencyContact ||
+              normalizedUser.emergencyPhone ||
               "",
             emergencyContactName:
-              profile.emergencyContactName || u.emergencyContactName || "",
-            address: profile.address || "",
+              responseProfile.emergencyContactName ||
+              normalizedUser.emergencyContactName ||
+              "",
+            itinerary:
+              responseProfile.itinerary ||
+              responseProfile.tripDetails ||
+              responseProfile.tripItinerary ||
+              responseProfile.travelPlan ||
+              "",
+            tripDetails:
+              responseProfile.tripDetails ||
+              responseProfile.itinerary ||
+              responseProfile.tripItinerary ||
+              responseProfile.travelPlan ||
+              "",
+            address: responseProfile.address || "",
           }
-        : null,
+        : {
+            blockchainId: normalizedUser.blockchainId || null,
+            name: normalizedUser.name || username,
+            phone: normalizedUser.phone || "",
+            mobile: normalizedUser.mobile || normalizedUser.phone || "",
+            emergencyPhone:
+              normalizedUser.emergencyPhone ||
+              normalizedUser.emergencyContact ||
+              "",
+            emergencyContacts:
+              normalizedUser.emergencyContact ||
+              normalizedUser.emergencyPhone ||
+              "",
+            emergencyContactName: normalizedUser.emergencyContactName || "",
+            itinerary: "",
+            tripDetails: "",
+            address: "",
+          },
     });
   } catch (err) {
     res.status(500).json({ error: "login failed", details: String(err) });

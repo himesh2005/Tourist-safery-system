@@ -178,10 +178,10 @@ export default function AdminDashboard() {
     return filteredTourists.map((t) => {
       const r = t.digitalIdRecord || {};
       return {
-        name: t.name || t.username || "Unknown",
-        blockchainId: t.blockchainId || r.blockchainId || "N/A",
-        itinerary: r.itinerary || "Not provided",
-        emergencyContacts: r.emergencyContacts || "Not provided",
+        name: t.name || t.username || "--",
+        blockchainId: t.blockchainId || r.blockchainId || "--",
+        itinerary: r.itinerary || "--",
+        emergencyContacts: r.emergencyContacts || "--",
         validFrom: r.validFrom || t.loginTimestamp || null,
         validTill: r.validTill || null,
       };
@@ -825,12 +825,12 @@ function TouristMonitoringTable({ tourists }) {
                 style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
               >
                 <td style={tdStyle}>
-                  <strong>{t.name || t.username || "Unknown"}</strong>
+                  <strong>{displayOrDash(t.name || t.username)}</strong>
                 </td>
-                <td style={tdStyle}>{t.blockchainId || "N/A"}</td>
+                <td style={tdStyle}>{displayOrDash(t.blockchainId)}</td>
                 <td style={tdStyle}>{formatDateTime(t.loginTimestamp)}</td>
                 <td style={tdStyle}>
-                  {loc ? `${fixed(loc.lat)}, ${fixed(loc.lng)}` : "No location"}
+                  {loc ? `${fixed(loc.lat)}, ${fixed(loc.lng)}` : "--"}
                 </td>
                 <td style={tdStyle}>
                   <span style={riskPillStyle(risk)}>{risk.toUpperCase()}</span>
@@ -877,12 +877,14 @@ function DigitalIdRecordsTable({ records }) {
               key={r.blockchainId}
               style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
             >
-              <td style={tdStyle}>{r.name}</td>
-              <td style={tdStyle}>{r.blockchainId}</td>
-              <td style={tdStyle}>{r.itinerary}</td>
-              <td style={tdStyle}>{r.emergencyContacts}</td>
+              <td style={tdStyle}>{displayOrDash(r.name)}</td>
+              <td style={tdStyle}>{displayOrDash(r.blockchainId)}</td>
+              <td style={tdStyle}>{displayOrDash(r.itinerary)}</td>
+              <td style={tdStyle}>{displayOrDash(r.emergencyContacts)}</td>
               <td style={tdStyle}>
-                {formatDateTime(r.validFrom)} → {formatDateTime(r.validTill)}
+                {r.validFrom || r.validTill
+                  ? `${formatDateTime(r.validFrom)} → ${formatDateTime(r.validTill)}`
+                  : "--"}
               </td>
             </tr>
           ))}
@@ -927,10 +929,10 @@ function AlertsTable({ alerts }) {
                 key={a.id}
                 style={{ borderBottom: "1px solid rgba(180,225,244,0.1)" }}
               >
-                <td style={tdStyle}>{a.userName || "Unknown"}</td>
-                <td style={tdStyle}>{a.blockchainId || "N/A"}</td>
+                <td style={tdStyle}>{displayOrDash(a.userName)}</td>
+                <td style={tdStyle}>{displayOrDash(a.blockchainId)}</td>
                 <td style={tdStyle}>{formatDateTime(a.timestamp)}</td>
-                <td style={tdStyle}>{a.zoneName || "Unknown Zone"}</td>
+                <td style={tdStyle}>{displayOrDash(a.zoneName)}</td>
                 <td style={tdStyle}>
                   <span style={riskPillStyle(risk)}>{risk.toUpperCase()}</span>
                 </td>
@@ -1260,14 +1262,20 @@ function searchPlaceholder(key) {
 }
 
 function formatDateTime(value) {
-  if (!value) return "N/A";
+  if (!value) return "--";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
+  if (Number.isNaN(date.getTime())) return "--";
   return date.toLocaleString();
 }
 
 function fixed(n) {
   return Number(n).toFixed(5);
+}
+
+function displayOrDash(value) {
+  if (value === null || value === undefined) return "--";
+  const text = String(value).trim();
+  return text ? text : "--";
 }
 
 function roundTo(n, decimals) {
