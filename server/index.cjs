@@ -317,14 +317,12 @@ function saveData() {
 }
 
 const USER_OFFLINE_SMS_MS = 30 * 1000;
-const EMERGENCY_OFFLINE_SMS_MS = 2 * 60 * 1000;
 
 // Per-user in-memory incident flags:
 // offlineSmsFlags[blockchainId] = {
 //   incidentId: string,
 //   offlineSince: number,
 //   userNotified: boolean,
-//   emergencyNotified: boolean,
 //   completed: boolean
 // }
 const offlineSmsFlags = Object.create(null);
@@ -391,7 +389,6 @@ async function checkAllUsersOfflineStatus() {
         incidentId: `${blockchainId}-${lastHeartbeatTs}`,
         offlineSince: null,
         userNotified: false,
-        emergencyNotified: false,
         completed: false,
       };
     }
@@ -406,7 +403,6 @@ async function checkAllUsersOfflineStatus() {
         incidentId: `${blockchainId}-${lastHeartbeatTs}`,
         offlineSince: null,
         userNotified: false,
-        emergencyNotified: false,
         completed: false,
       };
     }
@@ -448,7 +444,7 @@ async function checkAllUsersOfflineStatus() {
     const readableTs = formatOfflineTimestamp(lastHeartbeatTs);
     const latLngText = `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
 
-    // Stage 1: one SMS to user's own phone after 30s offline
+    // Single-stage alert: send only one SMS to the user after 30s offline.
     if (!activeFlags.userNotified && timeSince >= USER_OFFLINE_SMS_MS) {
       const userPhone = sanitizeIndianPhone(
         linkedUser?.phone || profile.phone || profile.mobile || "",
@@ -462,45 +458,18 @@ async function checkAllUsersOfflineStatus() {
           `Tourist Safety System`;
 
         const result = await sendSMSViaVercel(userMessage, userPhone);
-        if (result?.success === true) {
-          activeFlags.userNotified = true;
+        if (result?.success !== true) {
+          console.warn(
+            `Offline SMS send failed for ${blockchainId} (${userName})`,
+          );
         }
-      } else {
-        activeFlags.userNotified = true;
       }
+
+      // Mark notified after first attempt to avoid repeated SMS spam.
+      activeFlags.userNotified = true;
     }
 
-    // Stage 2: one SMS to emergency contact if still offline for 2 minutes
-    if (
-      !activeFlags.emergencyNotified &&
-      timeSince >= EMERGENCY_OFFLINE_SMS_MS
-    ) {
-      const emergencyPhone = sanitizeIndianPhone(
-        linkedUser?.emergencyPhone ||
-          linkedUser?.emergencyContact ||
-          profile.emergencyContactPhone ||
-          profile.emergencyContacts ||
-          "",
-      );
-
-      if (emergencyPhone) {
-        const emergencyMessage =
-          `Tourist Safety Alert\n` +
-          `${userName} is still offline. Last known location: ${latLngText}\n` +
-          `Last seen at ${readableTs}.\n` +
-          `Please check immediately.\n` +
-          `Tourist Safety System`;
-
-        const result = await sendSMSViaVercel(emergencyMessage, emergencyPhone);
-        if (result?.success === true) {
-          activeFlags.emergencyNotified = true;
-        }
-      } else {
-        activeFlags.emergencyNotified = true;
-      }
-    }
-
-    if (activeFlags.userNotified && activeFlags.emergencyNotified) {
+    if (activeFlags.userNotified) {
       activeFlags.completed = true;
       profile.offlineAlertSent = true;
       profile.lastOfflineAlert = now;
@@ -508,7 +477,7 @@ async function checkAllUsersOfflineStatus() {
         incidentId: activeFlags.incidentId,
         offlineSince: activeFlags.offlineSince,
         userNotified: true,
-        emergencyNotified: true,
+        emergencyNotified: false,
       };
       profiles.set(blockchainId, profile);
 
@@ -519,7 +488,7 @@ async function checkAllUsersOfflineStatus() {
           incidentId: activeFlags.incidentId,
           offlineSince: activeFlags.offlineSince,
           userNotified: true,
-          emergencyNotified: true,
+          emergencyNotified: false,
         };
         users.set(linkedUser.username, linkedUser);
       }
