@@ -617,6 +617,7 @@ export default function GeofenceMap({
   const [sheetExpanded, setSheetExpanded] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
   );
+  const [showDemoControls, setShowDemoControls] = useState(false);
   const [isOnlineState, setIsOnlineState] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -2023,87 +2024,6 @@ export default function GeofenceMap({
               </select>
             </div>
           </div>
-          <div
-            style={{
-              marginTop: "8px",
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "8px",
-            }}
-          >
-            <button
-              type="button"
-              className="pill-btn"
-              onClick={activateDemoMode}
-              style={{
-                width: "100%",
-                padding: "10px 10px",
-                borderRadius: "12px",
-                fontWeight: 800,
-                fontSize: "12px",
-                background: isDemoMode
-                  ? "linear-gradient(120deg,#ef6c00,#f97316)"
-                  : "rgba(255,255,255,0.12)",
-                color: isDemoMode ? "#fff" : undefined,
-                borderColor: isDemoMode ? "rgba(255,255,255,0.25)" : undefined,
-              }}
-            >
-              Demo Mode
-            </button>
-
-            <button
-              type="button"
-              className="pill-btn"
-              onClick={activateLiveMode}
-              style={{
-                width: "100%",
-                padding: "10px 10px",
-                borderRadius: "12px",
-                fontWeight: 800,
-                fontSize: "12px",
-                background: !isDemoMode
-                  ? "linear-gradient(120deg,#1e8e3e,#34a853)"
-                  : "rgba(255,255,255,0.12)",
-                color: !isDemoMode ? "#fff" : undefined,
-                borderColor: !isDemoMode ? "rgba(255,255,255,0.25)" : undefined,
-              }}
-            >
-              Live Mode
-            </button>
-          </div>
-
-          <button
-            type="button"
-            className="pill-btn"
-            onClick={triggerTestAlertNotification}
-            style={{
-              marginTop: "8px",
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: "12px",
-              fontWeight: 800,
-              fontSize: "12px",
-              background: "linear-gradient(120deg,#0f62fe,#1976d2)",
-              color: "#fff",
-              borderColor: "rgba(255,255,255,0.28)",
-            }}
-          >
-            Test Alert Notification
-          </button>
-
-          <div
-            style={{
-              marginTop: "6px",
-              fontSize: "11px",
-              fontWeight: 700,
-              color: isDemoMode ? "#ef6c00" : "#1e8e3e",
-            }}
-          >
-            Mode:{" "}
-            {isDemoMode
-              ? "DEMO (Simulated Danger GPS)"
-              : "LIVE (Real GPS Tracking)"}
-          </div>
           {errorMessage ? (
             <p className="gm-inline-error">{errorMessage}</p>
           ) : null}
@@ -2384,6 +2304,117 @@ export default function GeofenceMap({
         </button>
 
         <div className="gm-sheet-content">
+          <button
+            type="button"
+            className="pill-btn"
+            onClick={() => setShowDemoControls((value) => !value)}
+            style={{
+              width: "100%",
+              padding: "9px 12px",
+              borderRadius: "10px",
+              fontWeight: 700,
+              fontSize: "12px",
+              background: "rgba(15,98,254,0.12)",
+              color: "#0f62fe",
+              borderColor: "rgba(15,98,254,0.25)",
+            }}
+          >
+            {showDemoControls ? "Hide Demo Controls" : "Show Demo Controls"}
+          </button>
+
+          {showDemoControls ? (
+            <div
+              style={{
+                marginTop: "8px",
+                display: "grid",
+                gap: "8px",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  className="pill-btn"
+                  onClick={activateDemoMode}
+                  style={{
+                    width: "100%",
+                    padding: "10px 10px",
+                    borderRadius: "10px",
+                    fontWeight: 800,
+                    fontSize: "12px",
+                    background: isDemoMode
+                      ? "linear-gradient(120deg,#ef6c00,#f97316)"
+                      : "rgba(255,255,255,0.12)",
+                    color: isDemoMode ? "#fff" : undefined,
+                    borderColor: isDemoMode
+                      ? "rgba(255,255,255,0.25)"
+                      : undefined,
+                  }}
+                >
+                  Demo Mode
+                </button>
+
+                <button
+                  type="button"
+                  className="pill-btn"
+                  onClick={activateLiveMode}
+                  style={{
+                    width: "100%",
+                    padding: "10px 10px",
+                    borderRadius: "10px",
+                    fontWeight: 800,
+                    fontSize: "12px",
+                    background: !isDemoMode
+                      ? "linear-gradient(120deg,#1e8e3e,#34a853)"
+                      : "rgba(255,255,255,0.12)",
+                    color: !isDemoMode ? "#fff" : undefined,
+                    borderColor: !isDemoMode
+                      ? "rgba(255,255,255,0.25)"
+                      : undefined,
+                  }}
+                >
+                  Live Mode
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="pill-btn"
+                onClick={triggerTestAlertNotification}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  fontWeight: 800,
+                  fontSize: "12px",
+                  background: "linear-gradient(120deg,#0f62fe,#1976d2)",
+                  color: "#fff",
+                  borderColor: "rgba(255,255,255,0.28)",
+                }}
+              >
+                Test Alert Notification
+              </button>
+
+              <div
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  color: isDemoMode ? "#ef6c00" : "#1e8e3e",
+                }}
+              >
+                Mode:{" "}
+                {isDemoMode
+                  ? "DEMO (Simulated Danger GPS)"
+                  : "LIVE (Real GPS Tracking)"}
+              </div>
+            </div>
+          ) : null}
+
           {emergencyLoading ? (
             <div className="gm-sheet-state">Loading nearby services...</div>
           ) : null}
