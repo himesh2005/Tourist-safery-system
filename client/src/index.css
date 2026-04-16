@@ -2229,7 +2229,7 @@ a:hover {
 }
 
 .gm-fab-stack {
-    right: 16px;
+    right: 430px;
     bottom: 180px;
     z-index: 1000;
 }
@@ -2339,6 +2339,11 @@ a:hover {
     .gm-service-card {
         width: 248px;
         min-width: 248px;
+    }
+
+    .gm-fab-stack {
+        right: 16px;
+        bottom: 180px;
     }
 }
 

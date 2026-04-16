@@ -680,6 +680,13 @@ export default function GeofenceMap({
     return localStorage.getItem("token") || "";
   }
 
+  function handleUnauthorizedSession(
+    message = "Session expired. Please login again.",
+  ) {
+    localStorage.removeItem("token");
+    showActionBanner(message, "info", 5000);
+  }
+
   function showActionBanner(message, tone = "info", duration = 4000) {
     setActionBanner({ message, tone });
     if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
@@ -702,25 +709,46 @@ export default function GeofenceMap({
     }
 
     try {
-      if ("Notification" in window && Notification.permission === "default") {
-        await Notification.requestPermission();
-      }
-
-      if ("Notification" in window && Notification.permission !== "granted") {
+      if (!("Notification" in window)) {
         showActionBanner(
-          "Browser notifications are blocked. Enable site notifications for danger alerts.",
+          "This browser does not support system notifications.",
           "info",
-          7000,
+          6000,
         );
         return;
+      }
+
+      if (Notification.permission !== "granted") {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          showActionBanner(
+            "Notification permission denied. Enable notifications in browser settings.",
+            "info",
+            7000,
+          );
+          return;
+        }
       }
 
       const title = "Tourist Safety Alert";
       const body =
         "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.";
 
+      let delivered = false;
+
       if ("serviceWorker" in navigator) {
         const registration = await navigator.serviceWorker.ready;
+
+        if (registration?.active) {
+          registration.active.postMessage({
+            type: "TEST_ALERT_NOTIFICATION",
+            title,
+            body,
+            reason,
+            requireInteraction: true,
+            renotify: true,
+          });
+        }
 
         if (registration?.showNotification) {
           await registration.showNotification(title, {
@@ -732,22 +760,16 @@ export default function GeofenceMap({
             badge: "/vite.svg",
             data: { reason, timestamp: now, url: "/" },
           });
-          lastDangerNotifyAtRef.current = now;
-          return;
-        }
-
-        if (registration?.active) {
-          registration.active.postMessage({
-            type: "TEST_ALERT_NOTIFICATION",
-            reason,
-          });
-          lastDangerNotifyAtRef.current = now;
-          return;
+          delivered = true;
         }
       }
 
-      if ("Notification" in window && Notification.permission === "granted") {
+      if (!delivered && Notification.permission === "granted") {
         new Notification(title, { body });
+        delivered = true;
+      }
+
+      if (delivered) {
         lastDangerNotifyAtRef.current = now;
       }
     } catch {
@@ -845,15 +867,24 @@ export default function GeofenceMap({
     localStorage.setItem("lastKnownLocation", JSON.stringify(data));
 
     if (!navigator.onLine) return;
+
+    const token = getAuthToken();
+    if (!token) return;
+
     try {
-      await fetch(api("/api/user/last-location"), {
+      const response = await fetch(api("/api/user/last-location"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthToken()}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(data),
       });
+
+      if (response.status === 401 || response.status === 403) {
+        handleUnauthorizedSession();
+        return;
+      }
     } catch {}
   }
 
@@ -1136,7 +1167,7 @@ export default function GeofenceMap({
       if (!lastLoc?.lat) return;
 
       try {
-        await fetch(api("/api/user/heartbeat"), {
+        const response = await fetch(api("/api/user/heartbeat"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -1151,6 +1182,10 @@ export default function GeofenceMap({
             timestamp: Date.now(),
           }),
         });
+
+        if (response.status === 401 || response.status === 403) {
+          handleUnauthorizedSession();
+        }
       } catch {}
     };
 
@@ -1811,6 +1846,14 @@ export default function GeofenceMap({
     if (delta < -40) setSheetExpanded(false);
   }
 
+  function getFabStackInlineStyle() {
+    if (typeof window === "undefined") return undefined;
+    if (window.innerWidth >= 1024) {
+      return { right: "430px" };
+    }
+    return undefined;
+  }
+
   async function triggerTestAlertNotification() {
     const [lat, lng] = GADCHIROLI_DANGER_DEMO_LOCATION;
 
@@ -1837,14 +1880,17 @@ export default function GeofenceMap({
 
     try {
       showActionBanner(
-        "Demo alert armed. External browser notification will trigger in 10 seconds.",
+        "Demo alert triggered. Sending external browser notification now.",
         "warning",
         7000,
       );
 
+      await dispatchDangerNotification("manual-demo-test", true);
+
+      // Reliability fallback in case browser throttles immediate dispatch.
       setTimeout(() => {
-        dispatchDangerNotification("manual-demo-test", true);
-      }, 10000);
+        dispatchDangerNotification("manual-demo-test-backup", true);
+      }, 3000);
     } catch {
       showActionBanner(
         "Unable to trigger system notification on this browser.",
@@ -2013,7 +2059,7 @@ export default function GeofenceMap({
         ) : null}
       </AnimatePresence>
 
-      <div className="gm-fab-stack">
+      <div className="gm-fab-stack" style={getFabStackInlineStyle()}>
         <button
           type="button"
           className="gm-fab"
