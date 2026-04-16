@@ -1899,11 +1899,18 @@ a:hover {
     }
 
     .gm-bottom-sheet {
-        height: 160px;
+        height: 200px;
+        max-height: 78vh;
     }
 
     .gm-bottom-sheet-expanded {
-        height: 70vh;
+        height: 78vh;
+        max-height: 78vh;
+    }
+
+    .gm-sheet-content {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .gm-intel-panel {
@@ -2241,33 +2248,36 @@ a:hover {
 }
 
 .gm-bottom-sheet {
-    height: 260px;
+    height: 220px;
+    max-height: 78vh;
     background: rgba(255, 255, 255, 0.97);
     padding-bottom: 20px;
 }
 
 .gm-bottom-sheet-expanded {
-    height: 260px;
+    height: 72vh;
+    max-height: 78vh;
 }
 
 .gm-sheet-content {
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: auto;
     height: calc(100% - 42px);
+    padding-bottom: 8px;
 }
 
 .gm-service-rail {
     display: flex;
     flex-direction: row;
     gap: 12px;
-    padding: 12px 16px 16px 16px;
+    padding: 12px 16px 24px 16px;
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     height: auto;
     min-height: 0;
-    align-items: stretch;
+    align-items: flex-start;
 }
 
 .gm-service-rail::-webkit-scrollbar {
@@ -2278,14 +2288,16 @@ a:hover {
     width: 248px;
     min-width: 248px;
     flex-shrink: 0;
-    min-height: 150px;
+    min-height: 170px;
+    height: auto;
     background: #1e1e2e;
     border-radius: 12px;
     border: 1px solid transparent;
-    padding: 12px 14px 14px;
+    padding: 14px 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+    overflow: visible;
     box-sizing: border-box;
 }
 
