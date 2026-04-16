@@ -1765,36 +1765,54 @@ export default function GeofenceMap({
       mapRef.current.setView([lat, lng], 14, { animate: true });
     }
 
-    showActionBanner(
-      "Demo danger alert triggered instantly at Gadchiroli test coordinate.",
-      "warning",
-      6000,
-    );
-
     try {
       if ("Notification" in window && Notification.permission === "default") {
         await Notification.requestPermission();
       }
 
-      if ("serviceWorker" in navigator) {
-        const registration = await navigator.serviceWorker.ready;
-        if (registration?.active) {
-          registration.active.postMessage({ type: "TEST_ALERT_NOTIFICATION" });
-          return;
-        }
-      }
-
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Tourist Safety Alert", {
-          body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
-        });
-      } else {
+      if ("Notification" in window && Notification.permission !== "granted") {
         showActionBanner(
           "Notification permission is blocked. Enable notifications to test browser alerts.",
           "info",
           7000,
         );
+        return;
       }
+
+      showActionBanner(
+        "Demo alert armed. External browser notification will trigger in 10 seconds.",
+        "warning",
+        7000,
+      );
+
+      setTimeout(async () => {
+        try {
+          if ("serviceWorker" in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            if (registration?.active) {
+              registration.active.postMessage({
+                type: "TEST_ALERT_NOTIFICATION",
+              });
+              return;
+            }
+          }
+
+          if (
+            "Notification" in window &&
+            Notification.permission === "granted"
+          ) {
+            new Notification("Tourist Safety Alert", {
+              body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
+            });
+          }
+        } catch {
+          showActionBanner(
+            "Unable to trigger system notification on this browser.",
+            "info",
+            5000,
+          );
+        }
+      }, 10000);
     } catch {
       showActionBanner(
         "Unable to trigger system notification on this browser.",
