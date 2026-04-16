@@ -778,6 +778,60 @@ app.get("/api/test-vercel-sms", async (req, res) => {
   res.json(result);
 });
 
+function buildDangerZoneNotificationPayload(overrides = {}) {
+  const title = String(overrides?.title || "").trim() || "Tourist Safety Alert";
+  const body =
+    String(overrides?.body || "").trim() ||
+    "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.";
+  const tag =
+    String(overrides?.tag || "").trim() || "danger-zone-persistent-alert";
+  const url = String(overrides?.url || "").trim() || "/";
+  const requireInteraction =
+    typeof overrides?.requireInteraction === "boolean"
+      ? overrides.requireInteraction
+      : true;
+
+  return {
+    title,
+    body,
+    tag,
+    url,
+    requireInteraction,
+    timestamp: Date.now(),
+  };
+}
+
+app.post("/api/test-push-alert", (req, res) => {
+  try {
+    const payload = buildDangerZoneNotificationPayload(req.body || {});
+    return res.json({
+      success: true,
+      notification: payload,
+      hint: "Forward this payload to the service worker via postMessage or push event for demo notifications.",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: "Failed to build push alert payload",
+      details: String(err?.message || err),
+    });
+  }
+});
+
+app.get("/api/test-push-alert", (req, res) => {
+  const payload = buildDangerZoneNotificationPayload({
+    title: req.query?.title,
+    body: req.query?.body,
+    tag: req.query?.tag,
+    url: req.query?.url,
+  });
+
+  return res.json({
+    success: true,
+    notification: payload,
+  });
+});
+
 app.post("/api/user/heartbeat", authMiddleware, async (req, res) => {
   try {
     const { username } = req.user || {};

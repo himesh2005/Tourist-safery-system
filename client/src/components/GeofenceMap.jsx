@@ -12,8 +12,8 @@ const api = (path = "") =>
 const SMS_API_PATH = "/api/send-sms";
 
 const GADCHIROLI_CENTER = [20.1849, 80.003];
-const NAGPUR_CENTER = [21.1458, 79.0882];
-const DEMO_LOCATION = [21.1445, 79.091];
+const GADCHIROLI_DANGER_DEMO_LOCATION = [19.46, 80.32];
+const DEMO_DANGER_MATCH_THRESHOLD = 0.0002;
 const ALERT_INTERVAL_MS = 5 * 60 * 1000;
 const EMERGENCY_FALLBACK = {
   gadchiroli: {
@@ -175,6 +175,14 @@ function squaredDistance(a, b) {
   const dLat = Number(a[0]) - Number(b[0]);
   const dLng = Number(a[1]) - Number(b[1]);
   return dLat * dLat + dLng * dLng;
+}
+
+function isAtDemoDangerCoordinate(lat, lng) {
+  const dLat = Math.abs(Number(lat) - GADCHIROLI_DANGER_DEMO_LOCATION[0]);
+  const dLng = Math.abs(Number(lng) - GADCHIROLI_DANGER_DEMO_LOCATION[1]);
+  return (
+    dLat <= DEMO_DANGER_MATCH_THRESHOLD && dLng <= DEMO_DANGER_MATCH_THRESHOLD
+  );
 }
 
 function isPointInPolygon(point, polygon) {
@@ -636,6 +644,7 @@ export default function GeofenceMap({
   const lastSavedLocationAtRef = useRef(0);
   const bannerTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const demoImmediateAlertRef = useRef(false);
 
   const nearestHospitals = useMemo(
     () => getNearestEntries(userPosition, emergencyInfo.hospitals, 3),
@@ -651,18 +660,10 @@ export default function GeofenceMap({
     id: userProfile?.blockchainId || blockchainId || "",
     blockchainId: userProfile?.blockchainId || blockchainId || "",
     name:
-      userProfile?.name ||
-      travelerName ||
-      storedProfile?.name ||
-      "Traveler",
-    phone:
-      userProfile?.mobile ||
-      storedProfile?.phone ||
-      "",
+      userProfile?.name || travelerName || storedProfile?.name || "Traveler",
+    phone: userProfile?.mobile || storedProfile?.phone || "",
     emergencyContact:
-      userProfile?.emergencyContacts ||
-      storedProfile?.emergencyContact ||
-      "",
+      userProfile?.emergencyContacts || storedProfile?.emergencyContact || "",
     kyc: userProfile?.kyc || storedProfile?.kyc || "",
     validUntil: userProfile?.validUntil || storedProfile?.validUntil || null,
   };
@@ -1105,6 +1106,7 @@ export default function GeofenceMap({
 
   function evaluatePosition(lat, lng, hourNow) {
     let matchedZone = null;
+    const demoDangerTriggered = isAtDemoDangerCoordinate(lat, lng);
 
     for (let i = 0; i < zones.length; i += 1) {
       const zone = zones[i];
@@ -1114,6 +1116,13 @@ export default function GeofenceMap({
         matchedZone = zone;
         break;
       }
+    }
+
+    if (!matchedZone && demoDangerTriggered) {
+      matchedZone =
+        zones.find((zone) => zone?.riskLevel === "danger") ||
+        zones.find((zone) => zone?.riskLevel !== "safe") ||
+        null;
     }
 
     if (matchedZone) {
@@ -1144,7 +1153,40 @@ export default function GeofenceMap({
         setLastAlertTime(now);
         lastAlertTimeRef.current = now;
       }
+
+      if (
+        demoDangerTriggered &&
+        matchedZone.riskLevel === "danger" &&
+        !demoImmediateAlertRef.current
+      ) {
+        demoImmediateAlertRef.current = true;
+        showActionBanner(
+          "Demo danger coordinate matched — immediate alert triggered.",
+          "warning",
+          7000,
+        );
+
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.ready
+            .then((registration) => {
+              if (registration?.active) {
+                registration.active.postMessage({
+                  type: "TEST_ALERT_NOTIFICATION",
+                });
+              }
+            })
+            .catch(() => {});
+        } else if (
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          new Notification("Tourist Safety Alert", {
+            body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
+          });
+        }
+      }
     } else {
+      demoImmediateAlertRef.current = false;
       setActiveZone(null);
       activeZoneRef.current = null;
       setLastAlertTime(null);
@@ -1209,7 +1251,7 @@ export default function GeofenceMap({
   }, []);
 
   useEffect(() => {
-    setIsDemoMode(selectedCity === "nagpur-demo");
+    setIsDemoMode(selectedCity === "gadchiroli-demo");
   }, [selectedCity]);
 
   useEffect(() => {
@@ -1284,12 +1326,6 @@ export default function GeofenceMap({
       } catch {
         if (!cancelled) {
           setCities([
-            {
-              key: "nagpur",
-              city: "Nagpur",
-              center: NAGPUR_CENTER,
-              zoneCount: 0,
-            },
             {
               key: "gadchiroli",
               city: "Gadchiroli",
@@ -1554,7 +1590,7 @@ export default function GeofenceMap({
         watcherIdRef.current = null;
       }
 
-      const [lat, lng] = DEMO_LOCATION;
+      const [lat, lng] = GADCHIROLI_DANGER_DEMO_LOCATION;
       setUserPosition([lat, lng]);
       if (!userMarkerRef.current) {
         userMarkerRef.current = L.marker([lat, lng], {
@@ -1594,7 +1630,7 @@ export default function GeofenceMap({
 
       if (!userPickedCityRef.current && cities.length > 0) {
         const nearest = cities.reduce((best, city) => {
-          if (!Array.isArray(city.center) || city.key === "nagpur-demo") {
+          if (!Array.isArray(city.center) || city.key === "gadchiroli-demo") {
             return best;
           }
           const dist = squaredDistance([lat, lng], city.center);
@@ -1705,6 +1741,69 @@ export default function GeofenceMap({
     if (delta < -40) setSheetExpanded(false);
   }
 
+  async function triggerTestAlertNotification() {
+    const [lat, lng] = GADCHIROLI_DANGER_DEMO_LOCATION;
+
+    demoImmediateAlertRef.current = false;
+    setUserPosition([lat, lng]);
+    evaluatePosition(lat, lng, 3);
+    saveLastLocation(lat, lng, {
+      name: "Gadchiroli Demo Danger Zone",
+      riskLevel: "danger",
+      zoneName: "Gadchiroli Demo Danger Zone",
+    });
+
+    if (mapRef.current) {
+      if (!userMarkerRef.current) {
+        userMarkerRef.current = L.marker([lat, lng], {
+          icon: createUserIcon(),
+          zIndexOffset: 2000,
+        }).addTo(mapRef.current);
+      } else {
+        userMarkerRef.current.setLatLng([lat, lng]);
+      }
+      mapRef.current.setView([lat, lng], 14, { animate: true });
+    }
+
+    showActionBanner(
+      "Demo danger alert triggered instantly at Gadchiroli test coordinate.",
+      "warning",
+      6000,
+    );
+
+    try {
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration?.active) {
+          registration.active.postMessage({ type: "TEST_ALERT_NOTIFICATION" });
+          return;
+        }
+      }
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Tourist Safety Alert", {
+          body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
+        });
+      } else {
+        showActionBanner(
+          "Notification permission is blocked. Enable notifications to test browser alerts.",
+          "info",
+          7000,
+        );
+      }
+    } catch {
+      showActionBanner(
+        "Unable to trigger system notification on this browser.",
+        "info",
+        5000,
+      );
+    }
+  }
+
   return (
     <div className="gm-dashboard">
       <div ref={mapContainerRef} className="gm-map-canvas" />
@@ -1762,6 +1861,21 @@ export default function GeofenceMap({
               </select>
             </div>
           </div>
+          <button
+            type="button"
+            className="pill-btn"
+            onClick={triggerTestAlertNotification}
+            style={{
+              marginTop: "8px",
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: "12px",
+              fontWeight: 700,
+              fontSize: "12px",
+            }}
+          >
+            Test Alert Notification
+          </button>
           {errorMessage ? (
             <p className="gm-inline-error">{errorMessage}</p>
           ) : null}
@@ -1780,9 +1894,7 @@ export default function GeofenceMap({
           >
             {userInitial}
           </button>
-          <div className="gm-user-badge gm-user-badge-safe">
-            Verified
-          </div>
+          <div className="gm-user-badge gm-user-badge-safe">Verified</div>
           <AnimatePresence>
             {userCardOpen ? (
               <motion.div
@@ -1860,6 +1972,7 @@ export default function GeofenceMap({
         >
           <LocateIcon />
         </button>
+
         <button
           type="button"
           className="gm-fab gm-fab-sos"

@@ -4,7 +4,6 @@ const fs = require("fs");
 const path = require("path");
 
 const ZONES_PATH = path.join(__dirname, "..", "data", "zones.json");
-const NAGPUR_DEMO_PATH = path.join(__dirname, "..", "data", "nagpur-demo.json");
 const CITY_ZONES_DIR = path.join(__dirname, "zones");
 const GADCHIROLI_ZONES_PATH = path.join(CITY_ZONES_DIR, "gadchiroli.json");
 
@@ -18,64 +17,27 @@ function loadCityZonesFile(filePath) {
   return JSON.parse(raw);
 }
 
-function resolveCityPayload(parsed, cityParam) {
-  const cityKey = String(cityParam || "nagpur")
+function resolveCityPayload(_parsed, cityParam) {
+  const cityKey = String(cityParam || "gadchiroli")
     .trim()
     .toLowerCase();
 
-  if (cityKey === "nagpur-demo") {
-    const demoRaw = fs.readFileSync(NAGPUR_DEMO_PATH, "utf8");
-    const demoParsed = JSON.parse(demoRaw);
-    if (!demoParsed || !Array.isArray(demoParsed.zones)) {
-      throw new Error(
-        "nagpur-demo.json must contain { city, center, zones[] }",
-      );
-    }
-    return {
-      cityKey: "nagpur-demo",
-      city: demoParsed.city || "Nagpur Demo",
-      center: Array.isArray(demoParsed.center)
-        ? demoParsed.center
-        : [21.1458, 79.0882],
-      zones: demoParsed.zones,
-    };
+  if (cityKey !== "gadchiroli") {
+    throw new Error("Only gadchiroli zones are supported");
   }
 
-  if (cityKey === "gadchiroli") {
-    const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
-    if (!gadchiroliParsed || !Array.isArray(gadchiroliParsed.zones)) {
-      throw new Error("gadchiroli.json must contain { city, zones[] }");
-    }
-    return {
-      cityKey: "gadchiroli",
-      city: gadchiroliParsed.city || "Gadchiroli",
-      center: Array.isArray(gadchiroliParsed.center)
-        ? gadchiroliParsed.center
-        : [20.1849, 80.003],
-      zones: gadchiroliParsed.zones,
-    };
-  }
-
-  // Backward compatibility with old array-only zones.json format.
-  if (Array.isArray(parsed)) {
-    return {
-      cityKey: "nagpur",
-      city: "Nagpur",
-      center: [21.1458, 79.0882],
-      zones: parsed,
-    };
-  }
-
-  const picked = parsed[cityKey] || parsed.nagpur;
-  if (!picked || !Array.isArray(picked.zones)) {
-    throw new Error("Invalid zones.json city structure");
+  const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
+  if (!gadchiroliParsed || !Array.isArray(gadchiroliParsed.zones)) {
+    throw new Error("gadchiroli.json must contain { city, zones[] }");
   }
 
   return {
-    cityKey,
-    city: picked.city || cityKey,
-    center: Array.isArray(picked.center) ? picked.center : [21.1458, 79.0882],
-    zones: picked.zones,
+    cityKey: "gadchiroli",
+    city: gadchiroliParsed.city || "Gadchiroli",
+    center: Array.isArray(gadchiroliParsed.center)
+      ? gadchiroliParsed.center
+      : [20.1849, 80.003],
+    zones: gadchiroliParsed.zones,
   };
 }
 
@@ -123,8 +85,10 @@ function isPointInPolygon(point, polygon) {
 
 router.get("/api/zones", (req, res) => {
   try {
-    const parsed = loadZonesFile();
-    const cityPayload = resolveCityPayload(parsed, req.query.city);
+    const cityPayload = resolveCityPayload(
+      null,
+      req.query.city || "gadchiroli",
+    );
     return res.json(cityPayload.zones);
   } catch (err) {
     console.log("GEOFENCE /api/zones ERROR:", err);
@@ -134,8 +98,7 @@ router.get("/api/zones", (req, res) => {
 
 router.get("/api/zones/:city", (req, res) => {
   try {
-    const parsed = loadZonesFile();
-    const cityPayload = resolveCityPayload(parsed, req.params.city);
+    const cityPayload = resolveCityPayload(null, req.params.city);
     return res.json(cityPayload.zones);
   } catch (err) {
     console.log("GEOFENCE /api/zones/:city ERROR:", err);
@@ -147,9 +110,7 @@ router.post("/api/geofence/check", (req, res) => {
   try {
     const lat = Number(req.body?.lat);
     const lng = Number(req.body?.lng);
-    const city = String(req.body?.city || "nagpur")
-      .trim()
-      .toLowerCase();
+    const city = "gadchiroli";
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return res
@@ -157,8 +118,7 @@ router.post("/api/geofence/check", (req, res) => {
         .json({ error: "lat and lng must be valid numbers" });
     }
 
-    const parsed = loadZonesFile();
-    const cityPayload = resolveCityPayload(parsed, city);
+    const cityPayload = resolveCityPayload(null, city);
     const zones = Array.isArray(cityPayload?.zones) ? cityPayload.zones : [];
     const point = [lat, lng];
 
@@ -186,63 +146,23 @@ router.post("/api/geofence/check", (req, res) => {
 
 router.get("/api/cities", (req, res) => {
   try {
-    const parsed = loadZonesFile();
     const gadchiroliParsed = loadCityZonesFile(GADCHIROLI_ZONES_PATH);
-    const allowedKeys = new Set(["nagpur", "gadchiroli"]);
-
-    if (Array.isArray(parsed)) {
-      const cities = [
-        {
-          key: "nagpur",
-          city: "Nagpur",
-          center: [21.1458, 79.0882],
-          zoneCount: parsed.length,
-        },
-      ];
-
-      if (gadchiroliParsed && Array.isArray(gadchiroliParsed.zones)) {
-        cities.push({
-          key: "gadchiroli",
-          city: gadchiroliParsed.city || "gadchiroli",
-          center: Array.isArray(gadchiroliParsed.center)
-            ? gadchiroliParsed.center
-            : [20.1849, 80.003],
-          zoneCount: gadchiroliParsed.zones.length,
-        });
-      }
-
-      return res.json(cities);
+    if (!gadchiroliParsed || !Array.isArray(gadchiroliParsed.zones)) {
+      return res
+        .status(500)
+        .json({ error: "Failed to load Gadchiroli city metadata" });
     }
 
-    const cities = Object.entries(parsed)
-      .filter(([key]) => allowedKeys.has(String(key || "").toLowerCase()))
-      .map(([key, value]) => ({
-        key,
-        city: value?.city || key,
-        center: Array.isArray(value?.center)
-          ? value.center
-          : key === "gadchiroli"
-            ? [20.1849, 80.003]
-            : [21.1458, 79.0882],
-        zoneCount: Array.isArray(value?.zones) ? value.zones.length : 0,
-      }));
-
-    if (
-      !cities.some((city) => city.key === "gadchiroli") &&
-      gadchiroliParsed &&
-      Array.isArray(gadchiroliParsed.zones)
-    ) {
-      cities.push({
+    return res.json([
+      {
         key: "gadchiroli",
         city: gadchiroliParsed.city || "gadchiroli",
         center: Array.isArray(gadchiroliParsed.center)
           ? gadchiroliParsed.center
           : [20.1849, 80.003],
         zoneCount: gadchiroliParsed.zones.length,
-      });
-    }
-
-    return res.json(cities);
+      },
+    ]);
   } catch (err) {
     console.log("GEOFENCE /api/cities ERROR:", err);
     return res.status(500).json({ error: "Failed to load cities metadata" });
@@ -437,7 +357,7 @@ router.get("/map", (req, res) => {
         }).addTo(map);
 
         try {
-          const response = await fetch("/api/zones?city=nagpur", { cache: "no-store" });
+          const response = await fetch("/api/zones?city=gadchiroli", { cache: "no-store" });
           if (!response.ok) throw new Error("Zone API failed with status " + response.status);
           const data = await response.json();
           zones = validateZones(data);
