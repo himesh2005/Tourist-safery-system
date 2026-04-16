@@ -1349,7 +1349,9 @@ export default function GeofenceMap({
   }, []);
 
   useEffect(() => {
-    setIsDemoMode(false);
+    if (selectedCity !== "gadchiroli") {
+      setSelectedCity("gadchiroli");
+    }
   }, [selectedCity]);
 
   useEffect(() => {
@@ -1854,10 +1856,11 @@ export default function GeofenceMap({
     return undefined;
   }
 
-  async function triggerTestAlertNotification() {
+  function activateDemoMode() {
     const [lat, lng] = GADCHIROLI_DANGER_DEMO_LOCATION;
-
+    setIsDemoMode(true);
     demoImmediateAlertRef.current = false;
+
     setUserPosition([lat, lng]);
     evaluatePosition(lat, lng, 3);
     saveLastLocation(lat, lng, {
@@ -1877,6 +1880,69 @@ export default function GeofenceMap({
       }
       mapRef.current.setView([lat, lng], 14, { animate: true });
     }
+
+    showActionBanner(
+      "Demo mode enabled. Location is now simulated.",
+      "info",
+      5000,
+    );
+  }
+
+  function activateLiveMode() {
+    setIsDemoMode(false);
+    demoImmediateAlertRef.current = false;
+    setSelectedZone(null);
+    setDismissedZoneId("");
+
+    if (!("geolocation" in navigator)) {
+      showActionBanner(
+        "Geolocation not supported on this browser.",
+        "info",
+        5000,
+      );
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = Number(position?.coords?.latitude);
+        const lng = Number(position?.coords?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+        setUserPosition([lat, lng]);
+        evaluatePosition(lat, lng, getCurrentHour());
+
+        if (mapRef.current) {
+          if (!userMarkerRef.current) {
+            userMarkerRef.current = L.marker([lat, lng], {
+              icon: createUserIcon(),
+              zIndexOffset: 2000,
+            }).addTo(mapRef.current);
+          } else {
+            userMarkerRef.current.setLatLng([lat, lng]);
+          }
+          mapRef.current.setView([lat, lng], 13, { animate: true });
+        }
+      },
+      () => {
+        showActionBanner(
+          "Live mode enabled. Grant location permission to restore real tracking.",
+          "warning",
+          6000,
+        );
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+    );
+
+    showActionBanner(
+      "Live mode enabled. Switched back to real GPS tracking.",
+      "success",
+      5000,
+    );
+  }
+
+  async function triggerTestAlertNotification() {
+    activateDemoMode();
 
     try {
       showActionBanner(
@@ -1957,6 +2023,55 @@ export default function GeofenceMap({
               </select>
             </div>
           </div>
+          <div
+            style={{
+              marginTop: "8px",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px",
+            }}
+          >
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={activateDemoMode}
+              style={{
+                width: "100%",
+                padding: "10px 10px",
+                borderRadius: "12px",
+                fontWeight: 800,
+                fontSize: "12px",
+                background: isDemoMode
+                  ? "linear-gradient(120deg,#ef6c00,#f97316)"
+                  : "rgba(255,255,255,0.12)",
+                color: isDemoMode ? "#fff" : undefined,
+                borderColor: isDemoMode ? "rgba(255,255,255,0.25)" : undefined,
+              }}
+            >
+              Demo Mode
+            </button>
+
+            <button
+              type="button"
+              className="pill-btn"
+              onClick={activateLiveMode}
+              style={{
+                width: "100%",
+                padding: "10px 10px",
+                borderRadius: "12px",
+                fontWeight: 800,
+                fontSize: "12px",
+                background: !isDemoMode
+                  ? "linear-gradient(120deg,#1e8e3e,#34a853)"
+                  : "rgba(255,255,255,0.12)",
+                color: !isDemoMode ? "#fff" : undefined,
+                borderColor: !isDemoMode ? "rgba(255,255,255,0.25)" : undefined,
+              }}
+            >
+              Live Mode
+            </button>
+          </div>
+
           <button
             type="button"
             className="pill-btn"
@@ -1966,12 +2081,29 @@ export default function GeofenceMap({
               width: "100%",
               padding: "10px 12px",
               borderRadius: "12px",
-              fontWeight: 700,
+              fontWeight: 800,
               fontSize: "12px",
+              background: "linear-gradient(120deg,#0f62fe,#1976d2)",
+              color: "#fff",
+              borderColor: "rgba(255,255,255,0.28)",
             }}
           >
             Test Alert Notification
           </button>
+
+          <div
+            style={{
+              marginTop: "6px",
+              fontSize: "11px",
+              fontWeight: 700,
+              color: isDemoMode ? "#ef6c00" : "#1e8e3e",
+            }}
+          >
+            Mode:{" "}
+            {isDemoMode
+              ? "DEMO (Simulated Danger GPS)"
+              : "LIVE (Real GPS Tracking)"}
+          </div>
           {errorMessage ? (
             <p className="gm-inline-error">{errorMessage}</p>
           ) : null}
