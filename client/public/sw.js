@@ -11,24 +11,45 @@ const PERIODIC_ALERT_MS = 15 * 60 * 1000; // 15 minutes
 let periodicTimerId = null;
 
 function canNotify() {
-  return typeof Notification !== "undefined" && Notification.permission === "granted";
+  return (
+    typeof Notification !== "undefined" && Notification.permission === "granted"
+  );
 }
 
-async function showDangerNotification(source = "system") {
+async function showDangerNotification(source = "system", overrides = {}) {
   if (!canNotify()) return;
 
-  await self.registration.showNotification(DANGER_NOTIFICATION_TITLE, {
-    body: DANGER_NOTIFICATION_BODY,
-    tag: DANGER_NOTIFICATION_TAG,
+  const title =
+    String(overrides?.title || "").trim() || DANGER_NOTIFICATION_TITLE;
+  const body = String(overrides?.body || "").trim() || DANGER_NOTIFICATION_BODY;
+  const tag = String(overrides?.tag || "").trim() || DANGER_NOTIFICATION_TAG;
+  const url = String(overrides?.url || "").trim() || APP_URL;
+
+  const requireInteraction =
+    typeof overrides?.requireInteraction === "boolean"
+      ? overrides.requireInteraction
+      : true;
+
+  const renotify =
+    typeof overrides?.renotify === "boolean" ? overrides.renotify : true;
+
+  const silent =
+    typeof overrides?.silent === "boolean" ? overrides.silent : false;
+
+  await self.registration.showNotification(title, {
+    body,
+    tag,
     icon: "/vite.svg",
     badge: "/vite.svg",
-    requireInteraction: true,
-    renotify: true,
-    silent: false,
+    requireInteraction,
+    renotify,
+    silent,
     data: {
       source,
       timestamp: Date.now(),
-      url: APP_URL,
+      url,
+      ...((overrides && typeof overrides.data === "object" && overrides.data) ||
+        {}),
     },
   });
 }
@@ -65,7 +86,7 @@ self.addEventListener("message", (event) => {
   const payload = event.data || {};
 
   if (payload.type === "TEST_ALERT_NOTIFICATION") {
-    event.waitUntil(showDangerNotification("manual-test"));
+    event.waitUntil(showDangerNotification("manual-test", payload));
     return;
   }
 

@@ -14,6 +14,7 @@ const SMS_API_PATH = "/api/send-sms";
 const GADCHIROLI_CENTER = [20.1849, 80.003];
 const GADCHIROLI_DANGER_DEMO_LOCATION = [19.46, 80.32];
 const DEMO_DANGER_MATCH_THRESHOLD = 0.0002;
+const DANGER_NOTIFICATION_COOLDOWN_MS = 60 * 1000;
 const ALERT_INTERVAL_MS = 5 * 60 * 1000;
 const EMERGENCY_FALLBACK = {
   gadchiroli: {
@@ -613,7 +614,9 @@ export default function GeofenceMap({
   const [emergencyLoading, setEmergencyLoading] = useState(false);
   const [emergencyError, setEmergencyError] = useState("");
   const [showIntelPanel, setShowIntelPanel] = useState(false);
-  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : false,
+  );
   const [isOnlineState, setIsOnlineState] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true,
   );
@@ -645,6 +648,7 @@ export default function GeofenceMap({
   const bannerTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const demoImmediateAlertRef = useRef(false);
+  const lastDangerNotifyAtRef = useRef(0);
 
   const nearestHospitals = useMemo(
     () => getNearestEntries(userPosition, emergencyInfo.hospitals, 3),
@@ -682,6 +686,77 @@ export default function GeofenceMap({
     bannerTimeoutRef.current = setTimeout(() => {
       setActionBanner(null);
     }, duration);
+  }
+
+  async function dispatchDangerNotification(
+    reason = "danger-zone-entry",
+    bypassCooldown = false,
+  ) {
+    const now = Date.now();
+    if (
+      !bypassCooldown &&
+      now - Number(lastDangerNotifyAtRef.current || 0) <
+        DANGER_NOTIFICATION_COOLDOWN_MS
+    ) {
+      return;
+    }
+
+    try {
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+
+      if ("Notification" in window && Notification.permission !== "granted") {
+        showActionBanner(
+          "Browser notifications are blocked. Enable site notifications for danger alerts.",
+          "info",
+          7000,
+        );
+        return;
+      }
+
+      const title = "Tourist Safety Alert";
+      const body =
+        "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.";
+
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+
+        if (registration?.showNotification) {
+          await registration.showNotification(title, {
+            body,
+            tag: "danger-zone-persistent-alert",
+            requireInteraction: true,
+            renotify: true,
+            icon: "/vite.svg",
+            badge: "/vite.svg",
+            data: { reason, timestamp: now, url: "/" },
+          });
+          lastDangerNotifyAtRef.current = now;
+          return;
+        }
+
+        if (registration?.active) {
+          registration.active.postMessage({
+            type: "TEST_ALERT_NOTIFICATION",
+            reason,
+          });
+          lastDangerNotifyAtRef.current = now;
+          return;
+        }
+      }
+
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, { body });
+        lastDangerNotifyAtRef.current = now;
+      }
+    } catch {
+      showActionBanner(
+        "Unable to dispatch system notification on this browser.",
+        "info",
+        5000,
+      );
+    }
   }
 
   function showSOSResult(type, message) {
@@ -1152,38 +1227,26 @@ export default function GeofenceMap({
       if (previousZoneId !== matchedZone.id || canRepeatAlert) {
         setLastAlertTime(now);
         lastAlertTimeRef.current = now;
+
+        if (matchedZone.riskLevel === "danger") {
+          dispatchDangerNotification(
+            demoDangerTriggered
+              ? "demo-danger-coordinate"
+              : "danger-zone-entry",
+            demoDangerTriggered,
+          );
+        }
       }
 
-      if (
-        demoDangerTriggered &&
-        matchedZone.riskLevel === "danger" &&
-        !demoImmediateAlertRef.current
-      ) {
-        demoImmediateAlertRef.current = true;
-        showActionBanner(
-          "Demo danger coordinate matched — immediate alert triggered.",
-          "warning",
-          7000,
-        );
-
-        if ("serviceWorker" in navigator) {
-          navigator.serviceWorker.ready
-            .then((registration) => {
-              if (registration?.active) {
-                registration.active.postMessage({
-                  type: "TEST_ALERT_NOTIFICATION",
-                });
-              }
-            })
-            .catch(() => {});
-        } else if (
-          "Notification" in window &&
-          Notification.permission === "granted"
-        ) {
-          new Notification("Tourist Safety Alert", {
-            body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
-          });
+      if (demoDangerTriggered && matchedZone.riskLevel === "danger") {
+        if (!demoImmediateAlertRef.current) {
+          showActionBanner(
+            "Demo danger coordinate matched — external browser alert triggered.",
+            "warning",
+            7000,
+          );
         }
+        demoImmediateAlertRef.current = true;
       }
     } else {
       demoImmediateAlertRef.current = false;
@@ -1251,8 +1314,15 @@ export default function GeofenceMap({
   }, []);
 
   useEffect(() => {
-    setIsDemoMode(selectedCity === "gadchiroli-demo");
+    setIsDemoMode(false);
   }, [selectedCity]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.innerWidth >= 1024) {
+      setSheetExpanded(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return undefined;
@@ -1766,52 +1836,14 @@ export default function GeofenceMap({
     }
 
     try {
-      if ("Notification" in window && Notification.permission === "default") {
-        await Notification.requestPermission();
-      }
-
-      if ("Notification" in window && Notification.permission !== "granted") {
-        showActionBanner(
-          "Notification permission is blocked. Enable notifications to test browser alerts.",
-          "info",
-          7000,
-        );
-        return;
-      }
-
       showActionBanner(
         "Demo alert armed. External browser notification will trigger in 10 seconds.",
         "warning",
         7000,
       );
 
-      setTimeout(async () => {
-        try {
-          if ("serviceWorker" in navigator) {
-            const registration = await navigator.serviceWorker.ready;
-            if (registration?.active) {
-              registration.active.postMessage({
-                type: "TEST_ALERT_NOTIFICATION",
-              });
-              return;
-            }
-          }
-
-          if (
-            "Notification" in window &&
-            Notification.permission === "granted"
-          ) {
-            new Notification("Tourist Safety Alert", {
-              body: "You are currently in a Danger Zone. Stay alert. If anything happens, use the emergency alert to notify nearby services.",
-            });
-          }
-        } catch {
-          showActionBanner(
-            "Unable to trigger system notification on this browser.",
-            "info",
-            5000,
-          );
-        }
+      setTimeout(() => {
+        dispatchDangerNotification("manual-demo-test", true);
       }, 10000);
     } catch {
       showActionBanner(

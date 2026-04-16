@@ -6,7 +6,6 @@ import "./index.css";
 import "leaflet/dist/leaflet.css";
 
 const PERIODIC_ALERT_MS = 15 * 60 * 1000;
-const NOTIFICATION_PROMPT_KEY = "tss_notification_permission_asked_v1";
 
 async function registerServiceWorkerAndNotifications() {
   if (typeof window === "undefined") return;
@@ -43,17 +42,11 @@ async function registerServiceWorkerAndNotifications() {
     }
   }
 
-  if ("Notification" in window) {
-    const askedBefore = localStorage.getItem(NOTIFICATION_PROMPT_KEY) === "1";
-    if (!askedBefore) {
-      localStorage.setItem(NOTIFICATION_PROMPT_KEY, "1");
-      if (Notification.permission === "default") {
-        try {
-          await Notification.requestPermission();
-        } catch {
-          // Ignore permission prompt errors.
-        }
-      }
+  if ("Notification" in window && Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch {
+      // Ignore permission prompt errors.
     }
   }
 }
