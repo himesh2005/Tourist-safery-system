@@ -1,6 +1,6 @@
 const DEFAULT_API_URL = import.meta.env.DEV
   ? "http://localhost:5000"
-  : "https://tourist-safety-system-production-c1e5.up.railway.app";
+  : "https://tourist-safety-system-production-bf1a.up.railway.app";
 
 function stripWrappingQuotes(value = "") {
   return String(value)
@@ -15,7 +15,7 @@ function normalizeApiBaseUrl(input) {
   let candidate = raw;
 
   // Handle accidental protocol-less values like:
-  // "tourist-safety-system-production-c1e5.up.railway.app"
+  // "tourist-safety-system-production-bf1a.up.railway.app"
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
     const isLocalhost =
       /^localhost(?::\d+)?(?:\/|$)/i.test(candidate) ||
