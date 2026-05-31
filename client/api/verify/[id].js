@@ -2,7 +2,7 @@ module.exports = async (req, res) => {
   const { id } = req.query;
   const RAILWAY_URL =
     process.env.VITE_API_URL ||
-    "https://tourist-safety-system-production.up.railway.app";
+    "https://tourist-safety-system-production-c1e5.up.railway.app";
   const https = require("https");
   return new Promise((resolve) => {
     https

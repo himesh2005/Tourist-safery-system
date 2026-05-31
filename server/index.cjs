@@ -19,16 +19,40 @@ const CITY_ROUTES_DIR = path.join(__dirname, "routes", "zones");
 let blockchainReady = false;
 
 const app = express();
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, OPTIONS",
-  );
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
-});
+
+// ===== CORS =====
+// Origins allowed to call this API from the browser. Extra origins can be
+// supplied via the CORS_ORIGINS env var as a comma-separated list.
+const allowedOrigins = [
+  "https://tourist-safety-system-theta.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  ...(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
+];
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Allow non-browser / same-origin requests that have no Origin header
+    // (curl, health checks, server-to-server) as well as allowlisted origins.
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+// Applying cors() globally also answers preflight (OPTIONS) requests for every
+// route, so no separate app.options() handler is needed (which would also break
+// under Express 5's path-to-regexp wildcard handling).
+app.use(cors(corsOptions));
+
 app.use(express.json());
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.use("/", geofenceRoutes);
